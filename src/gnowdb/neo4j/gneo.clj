@@ -9,7 +9,7 @@
             )
   (:use [gnowdb.neo4j.gqb]))
 
-(defn keyss
+(defn _keyss
   [map]
   (if (empty? map)
     []
@@ -23,19 +23,22 @@
   )
 
 (defn generateUUID
+  "No arguments"
   []
   (str (java.util.UUID/randomUUID))
   )
 
 (defn getAllLabels
-  "Get all the Labels from the graph, parsed."
+  "Get all the Labels from the graph, parsed.
+  No arguments"
   []
   (map #(% "LABELS(n)") (((gdriver/runQuery {:query "MATCH (n) RETURN DISTINCT LABELS(n)" :parameters {}}) :results) 0)
        )
   )
 
 (defn getAllNodes
-  "Returns a lazy sequence of labels and properties of all nodes in the graph"
+  "Returns a lazy sequence of labels and properties of all nodes in the graph
+  No arguments"
   []
   (map #(% "n") (((gdriver/runQuery {:query "MATCH (n) RETURN n" :parameters {}}) :results) 0))
   )
@@ -45,15 +48,17 @@
   Node properties should be a clojure map.
   Map keys will be used as neo4j node keys.
   Map keys should be Strings only.
-  Map values must be neo4j compatible Objects"
+  Map values must be neo4j compatible Objects
+  
+  Mandatory arguments:
+  :labels Should not be empty and must be a collection of string labels"
   [& {:keys [:labels
              :parameters
              :aggregator
              :execute?
              :unique?
              :uuid?]
-      :or {:labels []
-           :execute? true
+      :or {:execute? true
            :unique? false
            :uuid? uuidEnabled
            :parameters {}}
@@ -87,12 +92,13 @@
     )
   )  
 
-(defn createNodes
-  "Create Multiple Nodes in One Query"
-  [])
+;; (defn createNodes
+;;   "Create Multiple Nodes in One Query"
+;;   [])
 
 (defn deleteRelation
-  "Delete a relation between two nodes matched with their properties (input as clojure map) with it's own properties"
+  "Delete a relation between two nodes matched with their properties (input as clojure map) with it's own properties
+  No mandatory arguments, when used with no parameters, it will return a query to delete all relations in the neo4j db"
   [& {:keys [:fromNodeLabels
              :fromNodeParameters
              :relationshipType
@@ -103,7 +109,7 @@
       :or {:fromNodeLabels []
            :toNodeLabels []
            :relationshipType ""
-           :execute? true
+           :execute? false
            :toNodeParameters {}
            :fromNodeParameters {}
            :relationshipParameters {}}}]
@@ -141,7 +147,12 @@
   )
 
 (defn editRelation
-  "Edit Parameters of a relation"
+  "Edit Parameters of a relation
+  Mandatory arguments:
+  :newRelelationshipParamters should be a non-empty clojure map
+  
+  Not specifying :fromNodeLabels, :toNodeLabels, and the other arguments,
+  will affect all relations in the graphdb so use wisely"
   [& {:keys [:fromNodeLabels
              :fromNodeParameters
              :relationshipType
@@ -150,7 +161,7 @@
              :toNodeParameters
              :newRelationshipParameters
              :execute?]
-      :or {:execute? true
+      :or {:execute? false
            :fromNodeLabels []
            :toNodeLabels []
            :relationshipType ""
@@ -200,10 +211,12 @@
 
 (defn editRelationPropList
   "Edit Parameter of a relation that is a List
-  :propName should be string, representing the propertyName.
-  :editType should be one of APPEND,DELETE,REPLACE.
-  :editVal should represent value for APPEND/DELETE/REPLACE.
-  :replaceVal should be intended value, if :editVal is REPLACE"
+  :propName should be string, representing the propertyName.(Mandatory)
+  :editType should be one of APPEND,DELETE,REPLACE.(Mandatory)
+  :editVal should represent value for APPEND/DELETE/REPLACE.(Mandatory)
+  :replaceVal should be intended value, if :editVal is REPLACE
+  As usual, not specifying :fromNodeLabels, :toNodeLabels, :fromNodeParameters etc,
+  will affect all nodes/relations."
   [& {:keys [:fromNodeLabels
              :fromNodeParameters
              :relationshipType
@@ -266,7 +279,9 @@
   )
 
 (defn createRelation
-  "Relate two nodes matched with their properties (input as clojure map) with it's own properties"
+  "Relate two nodes matched with their properties (input as clojure map) with it's own properties
+  
+  No mandatory Arguments, but when using with no arguments it will create a junk relation between ALL nodes"
   [& {:keys [:fromNodeLabels
              :fromNodeParameters
              :relationshipType
@@ -323,7 +338,8 @@
   )
 
 (defn mergeRelation
-  "Create, if not exists, a relation betrween two nodes matched with their properties (input as clojure map) with it's own properties"
+  "Create, if not exists, a relation betrween two nodes matched with their properties (input as clojure map) with it's own properties
+  No mandatory arguments. But use wisely"
   [& {:keys [:fromNodeLabels
              :fromNodeParameters
              :relationshipType
@@ -372,7 +388,9 @@
   )
 
 (defn deleteNodes
-  "Delete node(s) matched using property map"
+  "Delete node(s) matched using property map
+  No mandatory Arguments, but if you execute without arguments, it will try
+  to delete all nodes!!"
   [& {:keys [:labels
              :parameters
              :execute?]
@@ -398,7 +416,8 @@
   )
 
 (defn deleteDetachNodes
-  "Delete node(s) matched using property map and detach (remove relationships)"
+  "Delete node(s) matched using property map and detach (remove relationships)
+  No mandatory arguments, but use wisely"
   [& {:keys [:labels
              :parameters
              :execute?]
@@ -427,7 +446,10 @@
 
 (defn removeNodeProperties
   "Remove Properties of Node(s).
-  :propList should be a list of properties to be deleted."
+  :propList should be a list of properties to be deleted.
+  
+  No mandatory arguments, but will try to fetch all node UUID when no
+  arguments are given"
   [& {:keys [:labels
              :parameters
              :propList
@@ -460,7 +482,10 @@
   )
 
 (defn editNodeProperties
-  "Edit Properties of Node(s)"
+  "Edit Properties of Node(s)
+
+  No mandatory arguments, but will try to fetch all node UUIDs when no
+  arguments are given"
   [& {:keys [:labels
              :parameters
              :changeMap
@@ -496,7 +521,11 @@
   )
 
 (defn renameNodeProperties
-  "Rename node(s) properties."
+  "Rename node(s) properties.
+  
+  :labels should be a collection of string labels
+  :parameters should be a map to match a node or nodes with
+  :renameMap should be a map eg. {'oldParameterName' 'NewParameterName'} (Mandatory)"
   [& {:keys [:labels
              :parameters
              :renameMap
@@ -529,9 +558,9 @@
   "Edits a property of a node with a list as a value.
   :labels should be collection.
   :parameters should be a map.
-  :propName should be string, representing the propertyName.
-  :editType should be one of APPEND,DELETE,REPLACE.
-  :editVal should represent value for APPEND/DELETE/REPLACE.
+  :propName should be string, representing the propertyName.(Mandatory)
+  :editType should be one of APPEND,DELETE,REPLACE.(Mandatory)
+  :editVal should represent value for APPEND/DELETE/REPLACE.(Mandatory if not deleting)
   :replaceVal should be intended value, if :editVal is REPLACE"
   [& {:keys [:labels
              :parameters
@@ -540,10 +569,10 @@
              :editVal
              :replaceVal
              :execute?]
-      :or [:labels []
+      :or {:labels []
            :replaceVal nil
            :parameters {}
-           :execute? true]
+           :execute? true}
       }
    ]
   {:pre [(map? parameters)]}
@@ -572,7 +601,7 @@
 
 (defn removeLabels
   "Removes labels from a node
-  :remLabelList should be a list of strings"
+  :remLabelList should be a list of strings (Mandatory)"
   [& {:keys [:labels
              :properties
              :remLabelList
@@ -598,10 +627,10 @@
 
 (defn renameLabels
   "Renames label(s) of a node/relation.
-  :objectType should be NODE or RELATION.
-  :replaceLabelMap should be a map of strings, with keys as existing labels and the values as newLabels.
+  :objectType should be NODE or RELATION.(Mandatory)
+  :replaceLabelMap should be a map of strings, with keys as existing labels and the values as newLabels.(Mandatory)
   if a label with a particular key doesnt exist, the new label will be added.
-  if :objectType is RELATION, remLabelList can only have one string"
+  if :objectType is RELATION, replaceLabelmap can only have one string"
   [& {:keys [:labels
              :properties
              :objectType
@@ -646,7 +675,10 @@
     ))
 
 (defn revertNode
-  "Revert Properties/Labels of a node to an older version."
+  "Revert Properties/Labels of a node to an older version.
+
+  No mandatory arguments, but when no arguments are given, it will
+  try to fetch all node UUID"
   [& {:keys [:matchLabels
              :newLabels
              :matchProperties
@@ -698,7 +730,10 @@
       builtQuery)))
 
 (defn revertRelation
-  "Revert properties/type of a relation"
+  "Revert properties/type of a relation
+  Mandatory arguments:
+  :relationshipType
+  "
   [& {:keys [:fromNodeLabels
              :fromNodeParameters
              :toNodeLabels
@@ -751,7 +786,9 @@
       builtQuery)))
 
 (defn getNodes
-  "Get Node(s) matched by label and propertyMap"
+  "Get Node(s) matched by label and propertyMap
+  
+  No mandatory arguments"
   [& {:keys [:labels
              :parameters
              :count?
@@ -773,7 +810,9 @@
   )
 
 (defn getRelations
-  "Get relations matched by inNode/outNode/type and properties"
+  "Get relations matched by inNode/outNode/type and properties
+
+  No mandatory arguments"
   [& {:keys [:fromNodeLabels
              :fromNodeParameters
              :relationshipType
@@ -844,7 +883,9 @@
   )
 
 (defn getNeighborhood
-  "Get the neighborhood of a particular node"
+  "Get the neighborhood of a particular node
+  
+  No mandatory arguments."
   [& {:keys [:labels
              :parameters]
       :or {:parameters {}}
@@ -903,10 +944,10 @@
 
 (defn manageConstraints
   "Manage unique constraints or existance constraints.
-  :label should be a string.
-  :CD should be either of 'CREATE','DROP'
-  :propertyVec should be a vector of properties(string).
-  :constraintType should be either UNIQUE or NODEEXISTANCE or RELATIONEXISTANCE or NODEKEY.
+  :label should be a string.(Mandatory)
+  :CD should be either of 'CREATE','DROP'(Mandatory)
+  :propertyVec should be a vector of properties(string).(Mandatory)
+  :constraintType should be either UNIQUE or NODEEXISTANCE or RELATIONEXISTANCE or NODEKEY.(Mandatory)
   if :constraintType is NODEKEY, :propertyVec should be a vector of vectors of properties(string).
   :execute? (boolean) whether the constraints are to be created, or just return preparedQueries"
   [& {:keys [:label
@@ -974,9 +1015,9 @@
 
 (defn manageUniqueConstraints
   "Create/Drop Unique Constraints on label properties.
-  :label is treated as a Node Label.
-  :CD can be CREATE,DROP.
-  :propertyVec should be a vector of properties"
+  :label is treated as a Node Label.(Mandatory)
+  :CD can be CREATE,DROP.(Mandatory)
+  :propertyVec should be a vector of properties(Mandatory)"
   [& {:keys [:label
              :CD
              :propertyVec
@@ -996,10 +1037,10 @@
 
 (defn manageExistanceConstraints
   "Create/Drop Existance Constraints on label properties.
-  :label is treated as a Node label or relation label based on value of NR.
-  :CD can be CREATE, DROP.
-  :propertyVec should be a vector of properties.
-  :NR should be either NODE or RELATION"
+  :label is treated as a Node label or relation label based on value of NR.(Mandatory)
+  :CD can be CREATE, DROP.(Mandatory)
+  :propertyVec should be a vector of properties.(Mandatory)
+  :NR should be either NODE or RELATION(Mandatory)"
   [& {:keys [:label
              :CD
              :propertyVec
@@ -1022,9 +1063,9 @@
 
 (defn manageNodeKeyConstraints
   "Create/Drop Node Key Constraints on node label properties.
-  :label is treated as node label.
-  :CD can be CREATE, DROP.
-  :propPropVec should be a vector of vectors of properties(string)."
+  :label is treated as node label.(Mandatory)
+  :CD can be CREATE, DROP.(Mandatory)
+  :propPropVec should be a vector of vectors of properties(string).(Mandatory)"
   [& {:keys [:label
              :CD
              :propPropVec
@@ -1151,8 +1192,8 @@
 
 (defn createNeoConstraint
   "Creates a NeoConstraint Node that describes a supported neo4j constraint.
-  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.
-  :constraintTarget should be either of NODE,RELATION.
+  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.(Mandatory)
+  :constraintTarget should be either of NODE,RELATION.(Mandatory)
   If :constraintTarget is RELATION, then constraintType can only be EXISTANCE"
   [& {:keys [:constraintType
              :constraintTarget
@@ -1228,8 +1269,8 @@
 
 (defn createCustomFunction
   "Creates a customFunction.
-  :fnName should be string.
-  :fnString should be string that represents CustomFunction template."
+  :fnName should be string.(Mandatory)
+  :fnString should be string that represents CustomFunction template.(Mandatory)"
   [& {:keys [:fnName
              :fnString
              :execute?]
@@ -1244,7 +1285,9 @@
                  :execute? execute?))
 
 (defn getCustomFunctions
-  "Get CustomFunctions"
+  "Get CustomFunctions
+
+  No mandatory arguments"
   [& {:keys [:count?]
       :or {:count? false}}]
   (getNodes :labels ["CustomFunction"]
@@ -1252,7 +1295,10 @@
             :count? count?))
 
 (defn editCustomFunction
-  "Edit a CustomFunction's fnName and/or fnString"
+  "Edit a CustomFunction's fnName and/or fnString
+  :fnName should be the desired fnName(Mandatory)
+  :changeMap should be a map with keys 'fnName', 'fnString'
+  with the desired values(Mandatory)"
   [& {:keys [:fnName
              :changeMap
              :execute?]
@@ -1284,7 +1330,9 @@
 (defn reHashCustomFunctions
   "Re-Hash all CustomFunctions.
   Could take a long time depending on size of database.
-  Use only when customPassword is changed"
+  Use only when customPassword is changed
+  
+  No mandatory arguments"
   [& {:keys [:execute?]
       :or {:execute? true}}]
   (let [builtQueries (map (fn [customFunction]
@@ -1304,7 +1352,9 @@
   )
 
 (defn getClassAttributeTypes
-  "Get all AttributeTypes 'attributed' to a class"
+  "Get all AttributeTypes 'attributed' to a class
+
+  :className should be a string (Mandatory)"
   [& {:keys [:className
              :count?]
       :or {:count? false}}]
@@ -1321,7 +1371,9 @@
   )
 
 (defn getClassApplicableSourceNT
-  "Get all AttributeTypes 'attributed' to a class"
+  "Get all Source NodeTypes 'attributed' to a class
+  
+  :className should be the name of the class(Mandatory)"
   [& {:keys [:className
              :count?]
       :or {:count? false}}]
@@ -1338,7 +1390,9 @@
   )
 
 (defn getClassApplicableTargetNT
-  "Get all AttributeTypes 'attributed' to a class"
+  "Get all Target NodeTypes 'attributed' to a class
+
+  :className should be string(Mandatory)"
   [& {:keys [:className
              :count?]
       :or {:count? false}}]
@@ -1355,7 +1409,8 @@
   )
 
 (defn getClassNeoConstraints
-  "Get all NeoConstraints attributed to a class"
+  "Get all NeoConstraints attributed to a class
+  :className should be string(Mandatory)"
   [& {:keys [:className
              :count?]
       :or {:count? false}}]
@@ -1370,7 +1425,8 @@
   )
 
 (defn getClassCustomConstraints
-  "Get all CustomConstraints applicable to a class"
+  "Get all CustomConstraints applicable to a class
+  :className should be string(Mandatory)"
   [& {:keys [:className
              :count?]
       :or {:count? false}}]
@@ -1385,7 +1441,8 @@
   )
 
 (defn getATValueRestrictions
-  "Get all ValueRestriction applicable to an AttributeType with _name atname"
+  "Get all ValueRestrictions applicable to an AttributeType with _name atname
+  :atName should be string(Mandatory)"
   [& {:keys [:atName
              :count?]
       :or {:count? false}}]
@@ -1401,10 +1458,10 @@
 
 (defn exemptClassNeoConstraint
   "Exempt a NeoConstraint that currently applies to a class.
-  :className string
-  :constraintType UNIQUE,NODEKEY,EXISTANCE
-  :constraintTarget NODE,RELATION
-  :constraintValue depends upon :_constraintTarget and :_constraintType"
+  :className string(Mandatory)
+  :constraintType UNIQUE,NODEKEY,EXISTANCE(Mandatory)
+  :constraintTarget NODE,RELATION(Mandatory)
+  :constraintValue depends upon :_constraintTarget and :_constraintType(Mandatory)"
   [& {:keys [:className
              :constraintType
              :constraintTarget
@@ -1434,10 +1491,10 @@
 
 (defn applyClassNeoConstraint
   "Apply a NeoConstraint that apply to a class.
-  :className string
-  :constraintType UNIQUE,NODEKEY,EXISTANCE
-  :constraintTarget NODE,RELATION
-  :constraintValue depends upon :_constraintTarget and :_constraintType
+  :className string(Mandatory)
+  :constraintType UNIQUE,NODEKEY,EXISTANCE(Mandatory)
+  :constraintTarget NODE,RELATION(Mandatory)
+  :constraintValue depends upon :_constraintTarget and :_constraintType(Mandatory)
   :execute?"
   [& {:keys [:className
              :constraintType
@@ -1467,7 +1524,8 @@
   )
 
 (defn exemptClassNeoConstraints
-  "Exempt all NeoConstraints for a class"
+  "Exempt all NeoConstraints for a class
+  :className string(Mandatory)"
   [& {:keys [:className
              :execute?]
       :or {:execute? true}
@@ -1504,7 +1562,8 @@
   )
 
 (defn applyClassNeoConstraints
-  "Apply all NeoConstraints for a class"
+  "Apply all NeoConstraints for a class
+  :className string (Mandatory)"
   [& {:keys [:className
              :execute?]
       :or {:execute? true}
@@ -1542,9 +1601,9 @@
 
 (defn remRelApplicableType
   "Remove an applicable Source/Target type to a Relation Class, by removing a relation: ApplicableSourceNT/ApplicableTargetNT.
-  :className should be className of relation class.
-  :applicationType should be either SOURCE or TARGET as string.
-  :applicableClassName should be a className of the source or target Node Class"
+  :className should be className of relation class.(Mandatory)
+  :applicationType should be either SOURCE or TARGET as string.(Mandatory)
+  :applicableClassName should be a className of the source or target Node Class(Mandatory)"
   [& {:keys [:className
              :applicationType
              :applicableClassName
@@ -1587,9 +1646,9 @@
 
 (defn addRelApplicableType
   "Add an applicable Source/Target type to a Relation Class, by creating a relation: ApplicableSourceNT/ApplicableTargetNT.
-  :className should be className of relation class.
-  :applicationType should be either SOURCE or TARGET as string.
-  :applicableClassName should be a className of the source or target Node Class"
+  :className should be className of relation class.(Mandatory)
+  :applicationType should be either SOURCE or TARGET as string.(Mandatory)
+  :applicableClassName should be a className of the source or target Node Class(Mandatory)"
   [& {:keys [:className
              :applicationType
              :applicableClassName
@@ -1633,7 +1692,7 @@
 
 (defn getRelApplicableNTs
   "Get a relation class' ApplicableNTs.
-  :className should be of a Class of classType 'RELATION'."
+  :className should be of a Class of classType 'RELATION'.(Mandatory)"
   [& {:keys [:className
              :count?]
       :or {:count? false}}]
@@ -1665,9 +1724,9 @@
 
 (defn addClassAT
   "Adds a relation HasAttributeType from Class to AttributeType.
-  :_atname: _name of AttributeType.
-  :_atdatatype: _datatype of AttributeType.
-  :className: className of Class"
+  :_atname: _name of AttributeType.(Mandatory)
+  :_atdatatype: _datatype of AttributeType.(Mandatory)
+  :className: className of Class(Mandatory)"
   [& {:keys [:_atname
              :className
              :execute?]
@@ -1693,9 +1752,9 @@
 
 (defn remClassAT
   "Removes relation HasAttributeType from Class to AttributeType.
-  :_atname: _name of AttributeType.
-  :_atdatatype: _datatype of AttributeType.
-  :className: className of Class"
+  :_atname: _name of AttributeType.(Mandatory)
+  :_atdatatype: _datatype of AttributeType.(Mandatory)
+  :className: className of Class(Mandatory)"
   [& {:keys [:_atname
              :className
              :execute?]
@@ -1721,9 +1780,9 @@
 (defn addATVR
   "Adds a ValueRestriction to an AttributeType.
   Creates a relation ValueRestrictionAppliesTo from CustomFunction to AttributeType.
-  :_atname should be _name of an AttributeType.
-  :fnName should be fnName of a CustomFunction.
-  :constraintValue should be value to be passed as CustomFunction's second argument"
+  :_atname should be _name of an AttributeType.(Mandatory)
+  :fnName should be fnName of a CustomFunction.(Mandatory)
+  :constraintValue should be value to be passed as CustomFunction's second argument(Mandatory)"
   [& {:keys [:_atname
              :fnName
              :constraintValue
@@ -1745,9 +1804,9 @@
 (defn remATVR
   "Removes a ValueRestriction to an AttributeType.
   Creates a relation ValueRestrictionAppliesTo from CustomFunction to AttributeType.
-  :_atname should be _name of an AttributeType.
-  :fnName should be fnName of a CustomFunction.
-  :constraintValue should be value to be passed as CustomFunction's second argument"
+  :_atname should be _name of an AttributeType.(Mandatory)
+  :fnName should be fnName of a CustomFunction.(Mandatory)
+  :constraintValue should be value to be passed as CustomFunction's second argument(Mandatory)"
   [& {:keys [:_atname
              :fnName
              :constraintValue
@@ -1768,10 +1827,10 @@
 (defn editATVR
   "Edits a ValueRestriction to an AttributeType.
   Creates a relation ValueRestrictionAppliesTo from CustomFunction to AttributeType.
-  :_atname should be _name of an AttributeType.
-  :fnName should be fnName of a CustomFunction.
-  :constraintValue should be value to be passed as CustomFunction's second argument of existing ValueRestriction
-  :newConstraintValue"
+  :_atname should be _name of an AttributeType.(Mandatory)
+  :fnName should be fnName of a CustomFunction.(Mandatory)
+  :constraintValue should be value to be passed as CustomFunction's second argument of existing ValueRestriction(Mandatory)
+  :newConstraintValue(Mandatory)"
   [& {:keys [:_atname
              :fnName
              :constraintValue
@@ -1793,11 +1852,11 @@
 
 (defn editClassNC
   "Edits relation NeoConstraintAppliesTo from a NeoConstraint to a Class.
-  :className should be a string.
-  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY
-  :constraintTarget should be either of NODE,RELATION.
-  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY.
-  :newConstraintValue"
+  :className should be a string.(Mandatory)
+  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY(Mandatory)
+  :constraintTarget should be either of NODE,RELATION.(Mandatory)
+  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY.(Mandatory)
+  :newConstraintValue(Mandatory)"
   [& {:keys [:constraintType
              :constraintTarget
              :constraintValue
@@ -1850,7 +1909,8 @@
   )
 
 (defn getNeoConstraintsWithAT
-  "Get NeoConstraint that are applied with a particular AttributeType"
+  "Get NeoConstraint that are applied with a particular AttributeType
+  :atName string (Mandatory)"
   [& {:keys [:atName
              :count?]
       :or {:count? false}}]
@@ -1874,7 +1934,7 @@
 
 (defn createDelATNC
   "Creates a query to remove an AttributeType in all relations with label NeoConstraintAppliesTo.
-  :atName should be a string, _name of an AttributeType."
+  :atName should be a string, _name of an AttributeType.(Mandatory)"
   [& {:keys [:atName]}
    ]
   {:pre [string? atName]}
@@ -1903,8 +1963,8 @@
 
 (defn createReplaceATNC
   "Creates a query to replace an AttributeType in all relations with label NeoConstraintAppliesTo.
-  :atName should be a string, _name of an AttributeType.
-  :renameName should be a string, replacement _name"
+  :atName should be a string, _name of an AttributeType.(Mandatory)
+  :renameName should be a string, replacement _name(Mandatory)"
   [& {:keys [:atName
              :renameName]}]
   {:pre [(string? atName)
@@ -1930,9 +1990,9 @@
 
 (defn remClassNC
   "Removes relation NeoConstraintAppliesTo from a NeoConstraint to a Class.
-  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.
-  :constraintTarget should be either of NODE,RELATION.
-  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY"
+  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.(Mandatory)
+  :constraintTarget should be either of NODE,RELATION.(Mandatory)
+  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY(Mandatory)"
   [& {:keys [:constraintType
              :constraintTarget
              :constraintValue
@@ -1974,9 +2034,9 @@
 
 (defn addClassNC
   "Adds a relation NeoConstraintAppliesTo from NeoConstraint to Class.
-  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.
-  :constraintTarget should be either of NODE,RELATION.
-  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY"
+  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.(Mandatory)
+  :constraintTarget should be either of NODE,RELATION.(Mandatory)
+  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY(Mandatory)"
   [& {:keys [:constraintType
              :constraintTarget
              :constraintValue
@@ -2025,9 +2085,9 @@
 
 (defn addClassCC
   "Adds a relation CustomConstraintAppliesTo from CustomFunction to Class.
-  :fnName of a CustomFunction.
-  :atList should be list of AttributeTypes' _name.
-  :constraintValue should be value to be passed as CustomFunction's second argument"
+  :fnName of a CustomFunction.(Mandatory)
+  :atList should be list of AttributeTypes' _name.(Mandatory)
+  :constraintValue should be value to be passed as CustomFunction's second argument(Mandatory)"
   [& {:keys [:fnName
              :atList
              :constraintValue
@@ -2063,9 +2123,9 @@
 
 (defn remClassCC
   "Delete relation CustomConstraintAppliesTo from CustomFunction to Class.
-  :fnName of a CustomFunction.
-  :atList should be list of AttributeTypes' _name.
-  :constraintValue should be value to be passed as CustomFunction's second argument"
+  :fnName of a CustomFunction.(Mandatory)
+  :atList should be list of AttributeTypes' _name.(Mandatory)
+  :constraintValue should be value to be passed as CustomFunction's second argument(Mandatory)"
   [& {:keys [:fnName
              :atList
              :constraintValue
@@ -2089,11 +2149,11 @@
 
 (defn editClassCC
   "Edit relation CustomConstraintAppliesTo from CustomFunction to Class.
-  :fnName of a CustomFunction.
-  :className of Class
-  :atList should be list of AttributeTypes' _name of existing CCAT relation.
-  :constraintValue should be value to be passed as CustomFunction's second argument of existing CCAT relation.
-  :editMap map with keys 'atList' and 'constraintValue' and appropriate values"
+  :fnName of a CustomFunction.(Mandatory)
+  :className of Class(Mandatory)
+  :atList should be list of AttributeTypes' _name of existing CCAT relation.(Mandatory)
+  :constraintValue should be value to be passed as CustomFunction's second argument of existing CCAT relation.(Mandatory)
+  :editMap map with keys 'atList' and 'constraintValue' and appropriate values(Mandatory)"
   [& {:keys [:fnName
              :atList
              :constraintValue
@@ -2122,7 +2182,7 @@
 
 (defn createDelATCC
   "Creates a query to remove an AttributeType in all relations with label CustomConstraintAppliesTo.
-  :atName should be a string, _name of an AttributeType."
+  :atName should be a string, _name of an AttributeType.(Mandatory)"
   [& {:keys [:atName]}
    ]
   {:pre [string? atName]}
@@ -2143,8 +2203,8 @@
 
 (defn createReplaceATCC
   "Creates a query to replace an AttributeType in all relations with label CustomConstraintAppliesTo.
-  :atName should be a string, _name of an AttributeType.
-  :renameName should be a string, replacement _name"
+  :atName should be a string, _name of an AttributeType.(Mandatory)
+  :renameName should be a string, replacement _name(Mandatory)"
   [& {:keys [:atName
              :renameName]}]
   {:pre [(string? atName)
@@ -2199,9 +2259,9 @@
 
 (defn createAttributeType
   "Creates a node with Label AttributeType.
-  :subTypeOf should be a vector containing the name of the superType if any
-  :_name should be a string
-  :_datatype should be a string of one of the following: 'java.lang.Boolean', 'java.lang.Byte', 'java.lang.Short', 'java.lang.Integer', 'java.lang.Long', 'java.lang.Float', 'java.lang.Double', 'java.lang.Character', 'java.lang.String', 'java.util.ArrayList'.
+  :subTypeOf should be a vector containing the name of the superType if any(Mandatory)
+  :_name should be a string(Mandatory)
+  :_datatype should be a string of one of the following: 'java.lang.Boolean', 'java.lang.Byte', 'java.lang.Short', 'java.lang.Integer', 'java.lang.Long', 'java.lang.Float', 'java.lang.Double', 'java.lang.Character', 'java.lang.String', 'java.util.ArrayList'.(Mandatory)
   :subjectQualifier should be a list of strings.
   :attributeQualifier should be a list of strings.
   :valueQualifier should be a list of strings"
@@ -2267,7 +2327,7 @@
 
 (defn getATClasses
   "Get classes that have a particular attributeType.
-  :_name should be a string, name of an AttributeType."
+  :_name should be a string, name of an AttributeType.(Mandatory)"
   [& {:keys [:_name
              :count?]
       :or {:count? false}}]
@@ -2287,9 +2347,9 @@
 
 (defn editAttributeType
   "Edit an attributeType.
-  `:editChanges` should be a map with at least one of the following keys :
-  -`_name` should be a string
-  -`_datatype` should be a string of one of the following: 'java.lang.Boolean', 'java.lang.Byte', 'java.lang.Short', 'java.lang.Integer', 'java.lang.Long', 'java.lang.Float', 'java.lang.Double', 'java.lang.Character', 'java.lang.String', 'java.util.ArrayList'.
+  `:editChanges`(Mandatory) should be a map with at least one of the following keys :
+  -`_name` should be a string(Mandatory)
+  -`_datatype` should be a string of one of the following: 'java.lang.Boolean', 'java.lang.Byte', 'java.lang.Short', 'java.lang.Integer', 'java.lang.Long', 'java.lang.Float', 'java.lang.Double', 'java.lang.Character', 'java.lang.String', 'java.util.ArrayList'.(Mandatory)
   -`subjectQualifier` should be a list of strings.
   -`attributeQualifier` should be a list of strings.
   -`valueQualifier` should be a list of strings.
@@ -2516,9 +2576,9 @@
 
 (defn- addClassNCQuery
   "Returns addClassNC query without doing a check on the existence and the uniqueness of the class.
-  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.
-  :constraintTarget should be either of NODE,RELATION.
-  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY"
+  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.(Mandatory)
+  :constraintTarget should be either of NODE,RELATION.(Mandatory)
+  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY(Mandatory)"
   [& {:keys [:constraintType
              :constraintTarget
              :constraintValue
@@ -2598,8 +2658,8 @@
 
 (defn- addClassCCQuery
   "Returns query for addClassCC without doing a check on atList
-  :fnName of a CustomFunction.
-  :constraintValue should be value to be passed as CustomFunction's second argument"
+  :fnName of a CustomFunction.(Mandatory)
+  :constraintValue should be value to be passed as CustomFunction's second argument(Mandatory)"
   [& {:keys [:fnName
              :atList
              :constraintValue
@@ -2645,9 +2705,9 @@
 (defn- addRelApplicableTypeQuery
   "Returns the query of the function addRelApplicableType without doing a check 
   on the existence and uniqueness of applicableClass.
-  :className should be className of relation class.
-  :applicationType should be either SOURCE or TARGET as string.
-  :applicableClassName should be a className of the source or target Node Class"
+  :className should be className of relation class.(Mandatory)
+  :applicationType should be either SOURCE or TARGET as string.(Mandatory)
+  :applicableClassName should be a className of the source or target Node Class(Mandatory)"
   [& {:keys [:className
              :applicationType
              :applicableClassName]}
@@ -2713,7 +2773,7 @@
 
 (defn createClass
   "Create a node with label Class
-  :subClassOf should be a vector containing the name of the superclass if any"
+  :subClassOf should be a vector containing the name of the superclass if any(Mandatory)"
   [& {:keys [:className
              :classType
              :isAbstract?
@@ -2786,7 +2846,8 @@
   )
 
 (defn getClassType
-  "Gets the classType of a Class"
+  "Gets the classType of a Class
+  :className string (Mandatory)"
   [&{:keys [:className]}]
   {:pre [(string? className)]}
   (try ((into {} ((first (getNodes :labels ["Class"]
@@ -2806,7 +2867,9 @@
   )
 
 (defn getClassInstances
-  "Get Class Instances"
+  "Get Class Instances
+  :className string (Mandatory)
+  :parameters should be a map"
   [& {:keys [:className
              :parameters
              :count?]
@@ -2824,8 +2887,8 @@
 
 (defn editClass
   "Edit isAbstract,className, miscelaneous properties of a class.
-  :className should be string , name of class to edit.
-  :newProperties should be a map with optional keys:
+  :className should be string , name of class to edit.(Mandatory)
+  :newProperties should be a map with optional keys:(Mandatory)
   -'className'
   -'isAbstract'
   :miscProperties should be a map with optional keys other than:
@@ -2915,7 +2978,9 @@
   )
 
 (defn classExists?
-  "Determine if unique class exists."
+  "Determine if unique class exists.
+  :className string (Mandatory)
+  :classType string"
   [& {:keys [:className
              :classType]
       :or {:classType nil}}]
@@ -2938,6 +3003,7 @@
 
 (defn deleteClass
   "Deletes a class.
+  :className string (Mandatory)
   :forceMigrate? should be true if instances, constraints, etc  are to be deleted as well"
   [& {:keys [:className
              :forceMigrate?
@@ -2993,7 +3059,9 @@
 (defn validatePropertyMaps
   "Validates propertyMaps for a class with className.
   Assumes class with given className exists.
-  Returns list of errors"
+  Returns list of errors
+  :className string (Mandatory)
+  :propertyMapList should be a list of property maps"
   [& {:keys [:className
              :propertyMapList]
       :or {:propertyMapList []}
@@ -3092,7 +3160,10 @@
   )
 
 (defn validateClassInstances
-  "Validate instances of a class"
+  "Validate instances of a class
+  :className string (Mandatory)
+  :classType string (Mandatory)
+  :instList list of maps"
   [& {:keys [:className
              :classType
              :instList]
@@ -3131,7 +3202,8 @@
 
 (defn createNodeClassInstances
   "Creates nodes , as an instance of a Class with classType:NODE.
-  :nodeList should be a collection of maps with node properties"
+  :className string (Mandatory)
+  :nodeList should be a collection of maps with node properties(Mandatory)"
   [& {:keys [:className
              :nodeList
              :execute?]
@@ -3168,12 +3240,12 @@
 
 (defn createRelationClassInstances
   "Creates a relation between two nodes, as an instance of a class with classType:RELATION.
-  :className : relation className
-  :relList : list of maps with the following keys
-  -:fromClassName className of 'out' label.
+  :className : relation className(Mandatory)
+  :relList : list of maps with the following keys(Mandatory)
+  -:fromClassName className of 'out' label.(Mandatory)
   -:fromPropertyMap a property map that matches one or more 'out' nodes.
   -:propertyMap relation propertyMap.
-  -:toClassName className of 'in' label.
+  -:toClassName className of 'in' label.(Mandatory)
   -:toPropertyMap a property map that matches one or more 'in' nodes."
   [& {:keys [:className
              :relList
@@ -3242,8 +3314,9 @@
 
 (defn editNodeClassInstances
   "Edit Instances of a Node Class.
+  :className string (Mandatory)
   :parameters should be a map with properties to match class instances with.
-  :changeMap should be a map with parameters to be changed."
+  :changeMap should be a map with parameters to be changed.(Mandatory)"
   [& {:keys [:className
              :parameters
              :changeMap
@@ -3264,6 +3337,7 @@
 
 (defn editRelationClassInstances
   "Edit Instances of a Relation Class.
+  :className string (Mandatory)
   :relationshipParameters should be a map to match relations by.
   :newRelationshipParameters should be a map of new properties for the relation"
   [& {:keys [:className
@@ -3292,6 +3366,7 @@
 
 (defn deleteNodeClassInstances
   "Delete Instances of a Node Class.
+  :className string (Mandatory)
   :parameters should be a map with properties to match class instances with.
   You must use :detach? explicitly if the instances have relations"
   [& {:keys [:className
@@ -3314,7 +3389,8 @@
                  :execute? execute?)))
 
 (defn deleteRelationClassInstances
-  "Delete Instances(Relations) of a relation class"
+  "Delete Instances(Relations) of a relation class
+  :className string (Mandatory)"
   [& {:keys [:className
              :relationshipParameters
              :fromNodeParameters

@@ -7,7 +7,7 @@
   :license {:name "GNU AFFERO GENERAL PUBLIC LICENSE Version 3"
             :url "https://www.gnu.org/licenses/agpl.txt"}
   :dependencies [
-                 [org.clojure/clojure "1.8.0"]
+                 [org.clojure/clojure "1.9.0"]
                  [org.neo4j.driver/neo4j-java-driver "1.3.0"]
                  [compojure "1.3.4"]
                  [ring-server "0.3.1"]

@@ -23,9 +23,9 @@
 
 (defn- derivePath
   "Derives the folder path(e.g.1/2/3) where the node nbh file is to be stored inside the rcs directory"
-  [& {:keys [:GDB_UUID
-             :bkp?]
-      :or {:bkp? false}}]
+  [& {:keys [GDB_UUID
+             bkp?]
+      :or {bkp? false}}]
   {:pre [(string? GDB_UUID)]}
   (str (if bkp?
          (rcsConfig :rcs-bkp-dir)
@@ -42,9 +42,9 @@
 
 (defn- deriveFilePath
   "Derives full path with file"
-  [& {:keys [:GDB_UUID
-             :bkp?]
-      :or {:bkp? false}}]
+  [& {:keys [GDB_UUID
+             bkp?]
+      :or {bkp? false}}]
   (str (derivePath :GDB_UUID GDB_UUID
                    :bkp? bkp?)
        GDB_UUID)
@@ -52,20 +52,20 @@
 
 (defn- spitFile
   "Spit into file"
-  [& {:keys [:GDB_UUID
-             :content]}]
+  [& {:keys [GDB_UUID
+             content]}]
   (shell/sh "mkdir" "-p" (derivePath :GDB_UUID GDB_UUID))
   (spit (deriveFilePath :GDB_UUID GDB_UUID) content))
 
 (defn- slurpFile
   "Slurp  file"
-  [& {:keys [:GDB_UUID]}]
+  [& {:keys [GDB_UUID]}]
   (slurp (deriveFilePath :GDB_UUID GDB_UUID)))
 
 (defn- co-l
   "Check out with lock
   co -l filename"
-  [& {:keys [:GDB_UUID]}]
+  [& {:keys [GDB_UUID]}]
   (shell/sh "co" "-l" GDB_UUID :dir (derivePath :GDB_UUID GDB_UUID))
   )
 
@@ -78,8 +78,8 @@
 (defn- ci-u
   "Initial check-in of file (leaving file active in filesystem)
   ci -u filename"
-  [& {:keys [:GDB_UUID
-             :edit-comment]
+  [& {:keys [GDB_UUID
+             edit-comment]
       }
    ]
   {:pre [(string? GDB_UUID)
@@ -117,9 +117,9 @@
     ))
 
 (defn- ci
-  [& {:keys [:GDB_UUID
-             :edit-comment]
-      :or {:edit-comment ""}
+  [& {:keys [GDB_UUID
+             edit-comment]
+      :or {edit-comment ""}
       }
    ]
   {:pre [(string? GDB_UUID)
@@ -131,8 +131,8 @@
           edit-comment))
 
 (defn- ci-sc
-  [& {:keys [:edit-comment]
-      :or {:edit-comment ""}}]
+  [& {:keys [edit-comment]
+      :or {edit-comment ""}}]
   (rcs-ci neo4j-schema-filename
           (rcsConfig :rcs-directory)
           edit-comment))
@@ -156,12 +156,12 @@
   Refer man page of co for info about date and revision number
   co -px.y filename
   co -p -dDATE filename"
-  [& {:keys [:filename
-             :dir
-             :rev
-             :date]
-      :or {:rev ""
-           :date ""}}]
+  [& {:keys [filename
+             dir
+             rev
+             date]
+      :or {rev ""
+           date ""}}]
   {:pre [(every? string? [filename
                           dir])
          (or (= "" rev)
@@ -185,11 +185,11 @@
         (throw (Exception. (result :err)))))))
 
 (defn co-p
-  [& {:keys [:GDB_UUID
-             :rev
-             :date]
-      :or {:rev ""
-           :date ""}}]
+  [& {:keys [GDB_UUID
+             rev
+             date]
+      :or {rev ""
+           date ""}}]
   {:pre [(string? GDB_UUID)]
    }
   (rcs-co-p :filename GDB_UUID
@@ -198,10 +198,10 @@
             :date date))
 
 (defn co-p-sc
-  [& {:keys [:rev
-             :date]
-      :or {:rev ""
-           :date ""}}]
+  [& {:keys [rev
+             date]
+      :or {rev ""
+           date ""}}]
   (rcs-co-p :filename neo4j-schema-filename
             :dir (rcsConfig :rcs-directory)
             :rev rev
@@ -209,9 +209,9 @@
 
 (defn rcsExists?
   "Returns whether rcs file exists for UUID"
-  [& {:keys [:GDB_UUID
-             :bkp?]
-      :or {:bkp? false}}]
+  [& {:keys [GDB_UUID
+             bkp?]
+      :or {bkp? false}}]
   (.exists (clojure.java.io/as-file (str (deriveFilePath :GDB_UUID GDB_UUID
                                                          :bkp? bkp?) ",v"))))
 
@@ -221,7 +221,7 @@
 
 (defn getLatest
   "Get Latest Revision of a Node's NBH map"
-  [& {:keys [:GDB_UUID]}]
+  [& {:keys [GDB_UUID]}]
   (co-p :GDB_UUID GDB_UUID))
 
 (defn getLatest-sc
@@ -237,7 +237,7 @@
 
 (defn rlog
   "Get rlog for a UUID"
-  [& {:keys [:GDB_UUID]}]
+  [& {:keys [GDB_UUID]}]
   (rcs-rlog GDB_UUID
             (derivePath :GDB_UUID GDB_UUID)))
 
@@ -255,7 +255,7 @@
 
 (defn revList
   "Get revision List for a UUID"
-  [& {:keys [:GDB_UUID]}]
+  [& {:keys [GDB_UUID]}]
   (if (rcsExists? :GDB_UUID GDB_UUID)
     (revList-rcs (rlog :GDB_UUID GDB_UUID))))
 
@@ -270,8 +270,8 @@
   :GDB_UUID should be a String UUID
   :newContent should be a map returned by gneo/getNBH.
   If newContent is nil, rcs nothing will happen"
-  [& {:keys [:GDB_UUID
-             :newContent]}]
+  [& {:keys [GDB_UUID
+             newContent]}]
   {:pre? [(string? GDB_UUID)
           (or (map? newContent)
               (nil? newContent))]}
@@ -304,7 +304,7 @@
 
 (defn markNodeAsDeleted
   "Set content of rcs file to nil"
-  [& {:keys [:GDB_UUID]}]
+  [& {:keys [GDB_UUID]}]
   (if (rcsExists? :GDB_UUID GDB_UUID)
     (do (doRCS :GDB_UUID GDB_UUID
                :newContent {:node {:labels []

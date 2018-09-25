@@ -84,7 +84,7 @@
       2: (instantiateGroupWorkspace :displayName \"GNU\" :editingPolicy \"Editable_Moderated\" :subGroupOf [\"Gnowledge\"] :createdBy \"GN\") creates a Public, Editable_Moderated, group workspace called GNU which is a subgroup of Gnowledge
       3: (instantiateGroupWorkspace :displayName \"Gnowledge\" :relationshipsOnly? true) does NOT create a group, but define the relationships of a group if they did not exist already.
   "
-  [& {:keys [:groupType :editingPolicy :displayName :alternateName :description :createdBy :subGroupOf :relationshipsOnly?] :or {:groupType "Public" :editingPolicy "Editable_Non-Moderated" :alternateName "[]" :createdBy "admin" :description "" :subGroupOf [] :relationshipsOnly? false}}]
+  [& {:keys [groupType editingPolicy displayName alternateName description createdBy subGroupOf relationshipsOnly?] :or {groupType "Public" editingPolicy "Editable_Non-Moderated" alternateName "[]" createdBy "admin" description "" subGroupOf [] relationshipsOnly? false}}]
   (if (false? relationshipsOnly?)
     (gneo/createNodeClassInstances :className "GDB_GroupWorkspace" :nodeList    [{
                                                                                   "GDB_DisplayName" displayName
@@ -168,7 +168,7 @@
       2: (instantiatePersonalWorkspace :displayName \"Lex\" :memberOfGroup \"Gnowledge\") creates a user Lex, who is a member of Gnowledge. Ray is marked as being created by admin.
       3: (instantiatePersonalWorkspace :displayName \"Anant\" :memberOfGroup \"Gnowledge\" :createdBy \"GN\") created user Anant, who is a member of Gnowledge. Anant is marked as being created by GN.
   "
-  [& {:keys [:displayName :alternateName :createdBy :memberOfGroup :description :relationshipsOnly?] :or {:alternateName "[]" :createdBy "admin" :memberOfGroup "home" :description "" :relationshipsOnly? false}}]
+  [& {:keys [displayName alternateName createdBy memberOfGroup description relationshipsOnly?] :or {alternateName "[]" createdBy "admin" memberOfGroup "home" description "" relationshipsOnly? false}}]
   (if (false? relationshipsOnly?)
     (gneo/createNodeClassInstances :className "GDB_PersonalWorkspace" :nodeList   [{
                                                                                     "GDB_DisplayName" displayName
@@ -365,7 +365,7 @@
 
 (defn- editLastModified
   "Changes the last modified credentials for a group workspace and calls on RCS with the accumulated changes."
-  [& {:keys [:editor :groupName]}]
+  [& {:keys [editor groupName]}]
   (rcs/updateLastModified :editor editor :resourceClass "GDB_GroupWorkspace" :resourceIDMap {"GDB_DisplayName" groupName})
   )
 
@@ -373,7 +373,7 @@
   "Determines types of workspaces a resource is published to. 
    Requires an ID Map of the resource that uniquely identifies it, and its class
   "
-  [& {:keys [:resourceIDMap :resourceClass]}]
+  [& {:keys [resourceIDMap resourceClass]}]
   (into #{} 
         (map #(((% :end) :properties) "GDB_GroupType")
              (gneo/getRelations  :fromNodeLabels [resourceClass]
@@ -387,7 +387,7 @@
 
 (defn- publishToUnmoderatedGroup
   "Publish nodes to unmoderated groups i.e. without admin check"
-  [& {:keys [:username :groupName :resourceIDMap :resourceClass]}]
+  [& {:keys [username groupName resourceIDMap resourceClass]}]
   (gneo/createRelationClassInstances :className "GDB_MemberOfWorkspace" :relList  [{
                                                                                     :fromClassName resourceClass
                                                                                     :fromPropertyMap resourceIDMap
@@ -409,7 +409,7 @@
 
 (defn- publishToModeratedGroup
   "Publish nodes to moderated groups i.e. with admin check"
-  [& {:keys [:username :groupName :resourceIDMap :resourceClass]}]
+  [& {:keys [username groupName resourceIDMap resourceClass]}]
   (if (.contains (getAdminList groupName) username)
     (publishToUnmoderatedGroup :username username :groupName groupName :resourceIDMap resourceIDMap :resourceClass resourceClass)
     (gneo/createRelationClassInstances  :className "GDB_PendingReview"  
@@ -427,7 +427,7 @@
 
 (defn- publishToAdminOnlyGroup
   "Publish nodes to admin only groups i.e. with admin check and no pendencies added"
-  [& {:keys [:username :groupName :resourceIDMap :resourceClass]}]
+  [& {:keys [username groupName resourceIDMap resourceClass]}]
   (if (.contains (getAdminList groupName) username)
     (do
       (publishToUnmoderatedGroup :username username :groupName groupName :resourceIDMap resourceIDMap :resourceClass resourceClass)
@@ -443,7 +443,7 @@
     :groupName name of the group to which the file needs to be published to
     :groupType (OPTIONAL) type of the group, need not be given
   "
-  [& {:keys [:resourceIDMap :resourceClass :groupType :groupName]}]
+  [& {:keys [resourceIDMap resourceClass groupType groupName]}]
   (let  [
          workspaceTypes (getTypeOfWorkspaces resourceIDMap resourceClass)
          groupType (if groupType groupType (getGroupType groupName))
@@ -465,7 +465,7 @@
       1: (addMemberToGroup :newMemberName \"Bruce\" :groupName \"Gnowledge\") adds Bruce to the group Gnowledge
       2: (addMemberToGroup :newMemberName \"Alfred\" :groupName \"Butlers\" :adminName \"Bruce\") adds Alfred to the Butlers group which is managed by Bruce.
   "
-  [& {:keys [:newMemberName :groupName :adminName]}]
+  [& {:keys [newMemberName groupName adminName]}]
   (let [workspaceType (getGroupType groupName)
         admins (getAdminList groupName)
         ]
@@ -498,7 +498,7 @@
     Eg:
       1: (addAdminToGroup :newAdminName \"Alfred\" :groupName \"Butlers\" :adminName \"Bruce\") adds Alfred as an admin to the Butlers group, Alfred can now manage all other butlers.
   "
-  [& {:keys [:newAdminName :groupName :adminName]}]
+  [& {:keys [newAdminName groupName adminName]}]
   (let [
         admins (getAdminList groupName)
         members (getMemberList groupName)
@@ -530,7 +530,7 @@
     Eg:
       1: (publishToGroup :username \"Gordon\" :groupName \"GCPD\" :resourceIDMap {\"CriminalName\" \"???\" \"Alias\" \"JOKER\"} :resourceClass \"APBs\") adds an APB to the group GCPD against with the details present in resourceIDMap
   "
-  [& {:keys [:username :groupName :resourceIDMap :resourceClass]}]
+  [& {:keys [username groupName resourceIDMap resourceClass]}]
   (let [groupType (getGroupType groupName)
         editingPolicy (getEditingPolicy groupName)
         ]
@@ -563,7 +563,7 @@
     Eg:
       1: (publishToPersonalWorkspace :username \"Darkseid\" :resourceIDMap {\"PlanetID\" \"Earth:52\"} :resourceClass \"Planets\")
   "
-  [& {:keys [:username :resourceIDMap :resourceClass]}]
+  [& {:keys [username resourceIDMap resourceClass]}]
   (gneo/createRelationClassInstances :className "GDB_MemberOfWorkspace" :relList  [{
                                                                                     :fromClassName resourceClass
                                                                                     :fromPropertyMap resourceIDMap
@@ -593,7 +593,7 @@
       1: (publishPendingResource :adminName \"Bruce\" :groupName \"Utility\" :resourceIDMap {\"Inventor\" \"Lucius\" \"ID\" \"Knightfall\"} :resourceClass \"Protocols\") 
           Adds a protocol resource to the Utility group which was added by a non admin user earlier, but is now approved by an admin.
   "
-  [& {:keys [:adminName :groupName :resourceIDMap :resourceClass]}]
+  [& {:keys [adminName groupName resourceIDMap resourceClass]}]
   (gneo/deleteRelation
    :toNodeLabels ["GDB_GroupWorkspace"]
    :toNodeProperties {"GDB_DisplayName" groupName}
@@ -611,7 +611,7 @@
     :resourceClass is the class to which the resource belongs.
   Eg:
       1: (moveToTrash :resourceIDMap {\"GDB_DisplayName\" \"Lamborghini\"} :resourceClass \"GDB_Car\")"
-  [& {:keys [:resourceIDMap :resourceClass]}]
+  [& {:keys [resourceIDMap resourceClass]}]
   (gneo/createRelationClassInstances :className "GDB_MemberOfWorkspace" :relList  [{
                                                                                     :fromClassName resourceClass
                                                                                     :fromPropertyMap resourceIDMap
@@ -629,7 +629,7 @@
     :resourceClass is the class to which the resource belongs.
   Eg:
       1: (purgeTrash :adminName \"Stark\" :resourceIDMap {\"GDB_DisplayName\" \"Lamborghini\"} :resourceClass \"GDB_Car\")"
-  [& {:keys [:adminName :resourceIDMap :resourceClass]}]
+  [& {:keys [adminName resourceIDMap resourceClass]}]
   (let [admins (getAdminList "TRASH")]
     (if (.contains admins adminName)
       (gneo/deleteDetachNodes   :labels [resourceClass] 
@@ -661,7 +661,7 @@
   Eg:
       1: (restoreResource :resourceIDMap {\"GDB_DisplayName\" \"Lamborghini\"} :resourceClass \"GDB_Car\" :workspaceClass \"GDB_GroupWorkspace\" :workspaceName \"CheapCars\" :username \"Loki\")
       2: (restoreResource :resourceIDMap {\"GDB_DisplayName\" \"Lamborghini\"} :resourceClass \"GDB_Car\" :workspaceClass \"GDB_PersonalWorkspace\" :workspaceName \"Loki\")"
-  [& {:keys [:resourceIDMap :resourceClass :workspaceClass :workspaceName :username]}]
+  [& {:keys [resourceIDMap resourceClass workspaceClass workspaceName username]}]
   (gneo/deleteRelation
    :toNodeLabels ["GDB_GroupWorkspace"]
    :toNodeParameters {"GDB_DisplayName" "TRASH"}
@@ -677,7 +677,7 @@
 
 (defn- deleteFromUnmoderatedGroup
   "Deletes a resource from an unmoderated group."
-  [& {:keys [:username :groupName :resourceIDMap :resourceClass]}]
+  [& {:keys [username groupName resourceIDMap resourceClass]}]
   (gneo/deleteRelation   :fromNodeLabels [resourceClass]
                           :fromNodeParameters resourceIDMap 
                           :relationshipType "GDB_MemberOfWorkspace" 
@@ -700,7 +700,7 @@
 
 (defn- deleteFromModeratedGroup
   "Delete nodes from moderated groups i.e. with admin check"
-  [& {:keys [:username :groupName :resourceIDMap :resourceClass]}]
+  [& {:keys [username groupName resourceIDMap resourceClass]}]
   (if (.contains (getAdminList groupName) username)
     (deleteFromUnmoderatedGroup :username username :groupName groupName :resourceIDMap resourceIDMap :resourceClass resourceClass)
     (editLastModified :editor username :groupName groupName) 
@@ -715,7 +715,7 @@
     :resourceClass is the class to which the resource belongs.
   Eg:
       1: (deleteFromGroup :resourceIDMap {\"GDB_DisplayName\" \"Lamborghini\"} :resourceClass \"GDB_Car\" :groupName \"CheapCars\" :username \"Loki\")"
-  [& {:keys [:username :groupName :resourceIDMap :resourceClass]}]
+  [& {:keys [username groupName resourceIDMap resourceClass]}]
   (let [groupType (getGroupType groupName)
         editingPolicy (getEditingPolicy groupName)
         ]
@@ -746,7 +746,7 @@
     :resourceClass is the class to which the resource belongs.
   Eg:
       1: (deleteFromPersonalWorkspace :username \"Dexter\" :resourceIDMap {\"GDB_DisplayName\" \"Lamborghini\"} :resourceClass \"GDB_Car\")"
-  [& {:keys [:username :resourceIDMap :resourceClass]}]
+  [& {:keys [username resourceIDMap resourceClass]}]
   (gneo/deleteRelation   :fromNodeLabels [resourceClass] 
                           :fromNodeParameters resourceIDMap 
                           :relationshipType "GDB_MemberOfWorkspace" 
@@ -785,7 +785,7 @@
     For member to be removed, adminName should be the name of an admin of the group.
   Eg:
       1: (removeMemberFromGroup :memberName \"Tony\" :groupName \"Superheroes\" :adminName \"Steve\")"
-  [& {:keys [:memberName :groupName :adminName]}]
+  [& {:keys [memberName groupName adminName]}]
   (let [admins (getAdminList groupName)
         members (getMemberList groupName)]
     (if (and (.contains admins adminName) (.contains members memberName))
@@ -816,7 +816,7 @@
     adminName should be the name of an admin of the group for the admin permissions to be removed.
   Eg:
       1: (removeAdminFromGroup :removedAdminName \"Tony\" :groupName \"Superheroes\" :adminName \"Steve\")"
-  [& {:keys [:removedAdminName :groupName :adminName]}]
+  [& {:keys [removedAdminName groupName adminName]}]
   (let [admins (getAdminList groupName)]
     (if (.contains admins adminName)
       (gneo/deleteRelation   :fromNodeLabels ["GDB_PersonalWorkspace"]
@@ -840,7 +840,7 @@
   Eg:
       1: (resourceExists :resourceIDMap {\"GDB_DisplayName\" \"Jarvis\"} :resourceClass \"Bot\" :workspaceName \"Superheroes\" :workspaceClass \"GDB_GroupWorkspace\")
       2: (resourceExists :resourceIDMap {\"GDB_DisplayName\" \"Jarvis\"} :resourceClass \"Bot\" :workspaceName \"Tony\" :workspaceClass \"GDB_PersonalWorkspace\")"
-  [& {:keys [:resourceIDMap :resourceClass :workspaceName :workspaceClass]}]
+  [& {:keys [resourceIDMap resourceClass workspaceName workspaceClass]}]
   (let [workspaces
         (map #(((% :end) :properties) "GDB_DisplayName")
              (gneo/getRelations  :fromNodeLabels [resourceClass]

@@ -24,4 +24,4 @@
                       "12.0"
                       "0.9"
                       "asd"])))))
-(run-tests)
+;; (run-tests)

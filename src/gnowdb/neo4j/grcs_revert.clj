@@ -27,18 +27,18 @@
   :latestRevision should be the NBH of the node in question, as returned by gdriver/getNBH, or optionally fetched using grcs/getLatest.
   :getNBH? to be used if the latestRevision is to be fetched using getNBH.
   :getLatest? to be used if latestRevision is to be fetched using latest rcs revision of node"
-  [& {:keys [:UUID
-             :rev
-             :date
-             :latestRevision
-             :getLatest?
-             :getNBH?
-             :execute?]
-      :or {:execute? false
-           :getLatest? false
-           :rev ""
-           :date ""
-           :getNBH? false}}]
+  [& {:keys [UUID
+             rev
+             date
+             latestRevision
+             getLatest?
+             getNBH?
+             execute?]
+      :or {execute? false
+           getLatest? false
+           rev ""
+           date ""
+           getNBH? false}}]
   {:pre [(or getLatest?
              getNBH?
              latestRevision)
@@ -158,16 +158,16 @@
 
 (defn revertSchema
   "Revert neo4j schema to older revision"
-  [& {:keys [:rev
-             :date
-             :getLatest?
-             :getSchema?
-             :execute?]
-      :or {:getLatest? false
-           :getSchema? false
-           :execute? false
-           :rev ""
-           :date ""}}]
+  [& {:keys [rev
+             date
+             getLatest?
+             getSchema?
+             execute?]
+      :or {getLatest? false
+           getSchema? false
+           execute? false
+           rev ""
+           date ""}}]
   {:pre [(or getLatest?
              getSchema?)
          (grcs/rcs-sc-Exists?)
@@ -194,18 +194,18 @@
        :addConstraints addConstraints})))
 
 (defn revertSubGraph
-  [& {:keys [:UUIDList
-             :date
-             :getLatest?
-             :getNBH?
-             :execute?
-             :revertSchema?]
-      :or {:UUIDList []
-           :date ""
-           :getLatest? true
-           :getNBH? false
-           :revertSchema? false
-           :execute? false}}]
+  [& {:keys [UUIDList
+             date
+             getLatest?
+             getNBH?
+             execute?
+             revertSchema?]
+      :or {UUIDList []
+           date ""
+           getLatest? true
+           getNBH? false
+           revertSchema? false
+           execute? false}}]
   {:pre [(coll? UUIDList)
          (not (empty? UUIDList))
          (not (= "" date))

@@ -5,7 +5,7 @@
   )
 
 (defn updateLastModified
-  [& {:keys [:editor :resourceIDMap :resourceClass]}]
+  [& {:keys [editor resourceIDMap resourceClass]}]
   (gneo/deleteRelation
    :fromNodeLabels [resourceClass]
    :fromNodeProperties resourceIDMap
@@ -27,6 +27,6 @@
   )
 
 (defn instantiateResourceRCS
-  [& {:keys [:resourceIDMap :resourceClass]}]
+  [& {:keys [resourceIDMap resourceClass]}]
                                         ;instantiate RCS here. Check if the resource passes is an instance of an already defined class!!
   )

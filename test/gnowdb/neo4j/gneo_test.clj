@@ -409,8 +409,8 @@
                                         ;   )
                                         ; )
 
-  (deleteDetachNodes :label "CustomFunction" :parameters {"fnName" "func"})
-  (deleteDetachNodes :label "AttributeType" :parameters {"_name" "small" "_datatype" "java.lang.String"})
+  (deleteDetachNodes :label "CustomFunction" :parameters {"fnName" "func"} :execute? true)
+  (deleteDetachNodes :label "AttributeType" :parameters {"_name" "small" "_datatype" "java.lang.String"} :execute? true)
   )
 
 (deftest getAllLabels-Test
@@ -627,4 +627,4 @@
     )
   )
 
-(run-tests)
+;; (run-tests)

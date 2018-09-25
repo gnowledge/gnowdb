@@ -44,7 +44,7 @@
 
 (defn- derivePath
   "Derives the file path(e.g.1/2/3) from the md5 hash where the file is to be stored inside the data directory"
-  [& {:keys [:GDB_MD5]}]
+  [& {:keys [GDB_MD5]}]
   (let [
         endSubString (subs GDB_MD5 (- (count GDB_MD5) dataStorageLevels)) 
         reversedString (clojure.string/reverse endSubString)
@@ -56,32 +56,32 @@
 
 (defn- copyFileToDataDir
   "Copies a file from the source folder to data folder."
-  [& {:keys [:filePath :srcPath]}]
+  [& {:keys [filePath srcPath]}]
   (sh "mkdir" "-p" filePath)
   (sh "cp" srcPath filePath)
   )
 
 (defn- removeFilefromDataDir
   "Removes a file from the data directory."
-  [& {:keys [:GDB_MD5 :fileName]}]
+  [& {:keys [GDB_MD5 fileName]}]
   (sh "rm" (str (derivePath :GDB_MD5 GDB_MD5) "/" fileName))
   )
 
 (defn- generateMD5 
   "Generates MD5 hash using the source path of the file."
-  [& {:keys [:filePath]}]
+  [& {:keys [filePath]}]
   (digest/md5 ((extract/parse filePath) :text))
   )
 
 (defn- deriveFileName
   "Derives the filename from the given path of the file."
-  [& {:keys [:filePath]}]
+  [& {:keys [filePath]}]
   (subs filePath (inc (clojure.string/last-index-of filePath "/")))
   )
 
 (defn- fileExists
   "Returns true if the given workspace contains the file else false"
-  [& {:keys [:GDB_MD5 :workspaceName :workspaceClass]}]
+  [& {:keys [GDB_MD5 workspaceName workspaceClass]}]
   (workspaces/resourceExists :resourceIDMap {"GDB_MD5" GDB_MD5} :resourceClass "GDB_File" :workspaceClass workspaceClass :workspaceName workspaceName)
   )
 
@@ -92,7 +92,7 @@
 	  contain the file.
 	  if PersonalWorkspace of author already contains the file then the file instance is not created.
 	  if GroupWorkspace already contains the file then the file is not published to that group."
-  [& {:keys[:fileSrcPath :author :memberOfWorkspace] :or {:author "ADMIN" :memberOfWorkspace []}}]
+  [& {:keys [fileSrcPath author memberOfWorkspace] :or {author "ADMIN" memberOfWorkspace []}}]
   (let [	fileName (deriveFileName :filePath fileSrcPath) 
         GDB_MD5 (generateMD5 :filePath fileSrcPath)
         filePath (derivePath :GDB_MD5 GDB_MD5)]
@@ -148,7 +148,7 @@
 		:username id the name of the user deleting the file from the group workspaceName
 		:groupName is the name of the group from which the file is to be removed.
 		:GDB_MD5 is the md5 hash of the file."
-  [& {:keys [:username :groupName :GDB_MD5]}]
+  [& {:keys [username groupName GDB_MD5]}]
   (
    workspaces/deleteFromGroup 	:username username 
    :groupName groupName 
@@ -161,7 +161,7 @@
   "Deletes a file from given personal workspace
 		:username id the name of the user who want's the file to be deleted from his/her personal workspace. 
 		:GDB_MD5 is the md5 hash of the file."
-  [& {:keys [:username :GDB_MD5]}]
+  [& {:keys [username GDB_MD5]}]
   (
    workspaces/deleteFromPersonalWorkspace 	:username username 
    :resourceClass "GDB_File" 
@@ -171,7 +171,7 @@
 
 (defn- deleteFileInstance
   "Deletes a file instance"
-  [& {:keys[:GDB_MD5]}]
+  [& {:keys [GDB_MD5]}]
   (
    gneo/deleteDetachNodes 	:labels ["GDB_File"] 
    :parameters {"GDB_MD5" GDB_MD5}
@@ -194,7 +194,7 @@
     Eg:
       	1: (restoreFile :GDB_MD5 \"md5 hash\" :workspaceClass \"GDB_GroupWorkspace\" :workspaceName \"Confidential\" :username \"Hulk\")
       	2: (restoreFile :GDB_MD5 \"md5 hash\" :workspaceClass \"GDB_PersonalWorkspace\" :workspaceName \"Hulk\")"
-  [& {:keys [:GDB_MD5 :workspaceClass :workspaceName :username]}]
+  [& {:keys [GDB_MD5 workspaceClass workspaceName username]}]
   (workspaces/restoreResource :resourceClass "GDB_File"
                               :resourceIDMap {"GDB_MD5" GDB_MD5}
                               :workspaceName workspaceName
@@ -209,7 +209,7 @@
     	:GDB_MD5 is the md5 hash of the file to be purged.
   	Eg:
       	1: (purgeFile :adminName \"Stark\" :GDB_MD5 \"md5 hash\")"
-  [& {:keys [:adminName :GDB_MD5]}]
+  [& {:keys [adminName GDB_MD5]}]
   (workspaces/purgeTrash 	:adminName adminName 
                                 :resourceClass "GDB_File"
                                 :resourceIDMap {"GDB_MD5" GDB_MD5}
@@ -224,7 +224,7 @@
 	  	contain the file.
 	Eg:
       	1: (addFileToDB :fileSrcPath \"src/gnowdb/core.clj\" :author \"Arrow\" :memberOfWorkspace [\"Superheroes\"])"
-  [& {:keys[:fileSrcPath :author :memberOfWorkspace]:or {:memberOfWorkspace []}}]
+  [& {:keys [fileSrcPath author memberOfWorkspace] :or {memberOfWorkspace []}}]
   (createFileInstance :fileSrcPath fileSrcPath :author author :memberOfWorkspace memberOfWorkspace)
   (copyFileToDataDir :srcPath fileSrcPath :filePath (derivePath :GDB_MD5 (generateMD5 :filePath fileSrcPath)))
   )
@@ -232,7 +232,7 @@
 (defn removeFileFromDB
   "Deletes a file from the database
 	 :GDB_MD5 is the md5 hash of the file to be deleted."
-  [& {:keys[:GDB_MD5]}]
+  [& {:keys [GDB_MD5]}]
   (let [fileName (((first (gneo/getNodes :labels ["GDB_File"] :parameters {"GDB_MD5" GDB_MD5})) :properties) "GDB_DisplayName")]
     (deleteFileInstance :GDB_MD5 GDB_MD5)
     (removeFilefromDataDir :GDB_MD5 GDB_MD5 :fileName fileName)

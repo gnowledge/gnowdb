@@ -5,24 +5,24 @@
 (def ^{:private true} var-prefix "VAR-")
 
 (defn concatVar
-  [& {:keys [:UUID]}]
+  [& {:keys [UUID]}]
   {:pre [(string? UUID)]}
   (str var-prefix UUID))
 
 (defn getVar
-  [& {:keys [:UUID]}]
+  [& {:keys [UUID]}]
   (ns-resolve 'gnowdb.neo4j.grcs_locks (symbol (concatVar :UUID UUID))))
 
 (defn createVar
-  [& {:keys [:UUID
-             :value]}]
+  [& {:keys [UUID
+             value]}]
   (intern 'gnowdb.neo4j.grcs_locks (symbol (concatVar :UUID UUID)) value))
 
 (def cvLock (atom nil))
 
 (defn initVars
-  [& {:keys [:UUIDList]
-      :or [:UUIDList []]}]
+  [& {:keys [UUIDList]
+      :or {UUIDList []}}]
   {:pre [(coll? UUIDList)]}
   (reset! cvLock
           (doall (pmap #(let [vvar (getVar :UUID %)]
@@ -33,14 +33,14 @@
                        UUIDList))))
 
 (defn remVar
-  [& {:keys [:UUID]}]
+  [& {:keys [UUID]}]
   (ns-unmap 'gnowdb.neo4j.grcs_locks (symbol (concatVar :UUID UUID))))
 
 (def fvLock (atom nil))
 
 (defn finalizeVars
-  [& {:keys [:UUIDList]
-      :or [:UUIDList []]}]
+  [& {:keys [UUIDList]
+      :or {UUIDList []}}]
   {:pre [(coll? UUIDList)]}
   (reset! fvLock
           (doall (pmap #(let [vvar (getVar :UUID %)]
@@ -55,12 +55,12 @@
 
 (defn queueUUIDs
   "Queues UUIDs for RCS"
-  [& {:keys [:UUIDList
-             :labels
-             :nbhs]
-      :or {:UUIDList []
-           :labels []
-           :nbhs {}}}]
+  [& {:keys [UUIDList
+             labels
+             nbhs]
+      :or {UUIDList []
+           labels []
+           nbhs {}}}]
   (let [init (initVars :UUIDList UUIDList)
         dS (doall (pmap (fn [nbhm]
                           (let [uuid (nbhm 0)

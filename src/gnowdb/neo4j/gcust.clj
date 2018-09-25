@@ -50,21 +50,21 @@
   :fnString should be a string representation of a customFunction.
   :argumentListX should be first argument of customFunction should be a collection of arguments, length and values depending upon the customFunction.
   :constraintValue should be the second argument to the customFunction"
-  [& {:keys [:fnString :argumentListX :constraintValue]}]
+  [& {:keys [fnString argumentListX constraintValue]}]
   {:pre [(string? fnString)
          (coll? argumentListX)]}
   ((str-to-fn fnString) argumentListX constraintValue))
 
 (defn cfIsIntegrous?
   "Check the integrity of a customFunction"
-  [& {:keys [:fnString :fnIntegrity]}]
+  [& {:keys [fnString fnIntegrity]}]
   {:pre [(string? fnString)
          (string? fnIntegrity)]}
   (= fnIntegrity (hashCustomFunction fnString)))
 
 (defn checkCustomFunction
   "Check Integrity and output of a customFunction"
-  [& {:keys [:fnString :fnIntegrity :fnName :argumentListX :constraintValue]}]
+  [& {:keys [fnString fnIntegrity fnName argumentListX constraintValue]}]
   (try
     (if
         (not (cfIsIntegrous? :fnString fnString :fnIntegrity fnIntegrity))

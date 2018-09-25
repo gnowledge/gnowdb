@@ -60,8 +60,8 @@
   :labels should be a map of strings.
    Individual labels will be enclosed with backticks if they are not already to allow for special characters, etc.
   :labels will be joined and preceded with ':'"
-  [& {:keys [:labels]
-      :or {:labels []}}]
+  [& {:keys [labels]
+      :or {labels []}}]
   {:pre [(coll? labels)]}
   (let [labelsx (reduce #(if (or (nil? %2)
                                  (= "" %2))
@@ -170,11 +170,11 @@
   eg.., SET varName.prop1={prop1} , varName.prop2={prop2}
   :varName should be name of the node/relation variable.
   :editPropertyList should be a collection of properties."
-  [& {:keys [:varName
-             :editPropertyList
-             :characteristicString]
-      :or {:characteristicString ""
-           :editPropertyList []}}]
+  [& {:keys [varName
+             editPropertyList
+             characteristicString]
+      :or {characteristicString ""
+           editPropertyList []}}]
   (if (not (coll? editPropertyList))
     (println editPropertyList))
   {:pre [(string? varName)
@@ -196,7 +196,7 @@
   eg.., REMOVE  varName.prop1 ,varName.prop2.
   :varName should be a string representing node/relation variable.
   :remPropertyList should be collection of properties for removal"
-  [& {:keys [:varName :remPropertyList]}]
+  [& {:keys [varName remPropertyList]}]
   {:pre [(string? varName)
          (coll? remPropertyList)
          (every? string? remPropertyList)]}
@@ -218,10 +218,10 @@
   :varName should be a string representing node/relation variable.
   :renameMap should be a map with keys as propertyNames and values as newNames.
   :addWhere? boolean, whether the keyword WHERE is to be included"
-  [& {:keys [:varName
-             :renameMap
-             :addWhere?]
-      :or {:addWhere? true}}]
+  [& {:keys [varName
+             renameMap
+             addWhere?]
+      :or {addWhere? true}}]
   {:pre [(string? varName)
          (not (empty? renameMap))
          (every? string? (keys renameMap))
@@ -249,11 +249,11 @@
   :editType should be one of APPEND,DELETE,REPLACE.
   :editVal should be parameter representing value for APPEND/DELETE/REPLACE.
   :replaceVal should be parameter representing intended value, if :editVal is REPLACE"
-  [& {:keys [:coll
-             :editType
-             :editVal
-             :replaceVal]
-      :or {:replaceVal ""}}]
+  [& {:keys [coll
+             editType
+             editVal
+             replaceVal]
+      :or {replaceVal ""}}]
   {:pre [(coll? coll)
          (every? string? coll)
          (contains? #{"APPEND" "DELETE" "REPLACE"} editType)
@@ -274,14 +274,14 @@
   :editVal should be parameter representing value for APPEND/DELETE/REPLACE.
   :replaceVal should be parameter representing intended value, if :editVal is REPLACE.
   :withWhere? should be true if Where condition should be included."
-  [& {:keys [:varName
-             :propName
-             :editType
-             :editVal
-             :replaceVal
-             :withWhere?]
-      :or {:replaceVal ""
-           :withWhere? true}}]
+  [& {:keys [varName
+             propName
+             editType
+             editVal
+             replaceVal
+             withWhere?]
+      :or {replaceVal ""
+           withWhere? true}}]
   {:pre [(string? varName)
          (string? propName)
          (contains? #{"APPEND" "DELETE" "REPLACE"} editType)

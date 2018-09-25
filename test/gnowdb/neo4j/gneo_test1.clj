@@ -29,7 +29,7 @@
              :indexesAdded 0,
              :relationshipsDeleted 1},
             :summaryString "ContainsUpdates :true ;RelationshipsDeleted :1 ;"} 
-           (deleteRelation :fromNodeLabels ["test"] :toNodeLabels ["test1"])
+           (deleteRelation :fromNodeLabels ["test"] :toNodeLabels ["test1"] :execute? true)
            )
         )
     )
@@ -49,7 +49,7 @@
              :indexesAdded 0,
              :relationshipsDeleted 1},
             :summaryString "ContainsUpdates :true ;RelationshipsDeleted :1 ;"} 
-           (deleteRelation :fromNodeLabels ["test3"] :toNodeParameters {"name" "t-db"} :toNodeLabels ["test"])
+           (deleteRelation :fromNodeLabels ["test3"] :toNodeParameters {"name" "t-db"} :toNodeLabels ["test"] :execute? true)
            )
         )
 

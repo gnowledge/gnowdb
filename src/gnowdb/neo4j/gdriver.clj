@@ -95,10 +95,10 @@
   "Create a map with keys :count,:RCSUUIDList, using `finalResult` of a transaction from gdriver/runQuery.
   :RCSUUIDList will be a vector of maps with keys :UUIDList, :labels.
   :queriesList should be the query maps that are passed to gdriver/runQuery"
-  [& {:keys [:finalResult
-             :queriesList]
-      :or {:finalResult {:results []}
-           :queriesList []}}]
+  [& {:keys [finalResult
+             queriesList]
+      :or {finalResult {:results []}
+           queriesList []}}]
   {:pre [(= (count (finalResult :results))
             (count queriesList))]}
   {:RCSUUIDList (filter identity
@@ -129,9 +129,9 @@
   "Groups UUIDs based on labels.
   if a UUIDList's labels are a superset of another UUIDList, it would be 'unioned' to the latter
   :RCSUUIDListMap should be output of gdriver/getRCSUUIDListMap"
-  [& {:keys [:RCSUUIDListMap]
-      :or {:RCSUUIDListMap {:count 0
-                            :RCSUUIDList []}}}]
+  [& {:keys [RCSUUIDListMap]
+      :or {RCSUUIDListMap {:count 0
+                           :RCSUUIDList []}}}]
   (let [RCSUUIDList (sort #(> (%1 :UUIDCount)
                               (%2 :UUIDCount))
                           (pmap (fn [UL]
@@ -170,9 +170,9 @@
     (assoc RCSUUIDListMap :RCSUUIDList reducedRCSUUIDList)))
 
 (defn- doRCS
-  [& {:keys [:finalResult
-             :queriesList
-             :tx]}]
+  [& {:keys [finalResult
+             queriesList
+             tx]}]
   (let [ruuidlistm (getRCSUUIDListMap :finalResult finalResult
                                       :queriesList queriesList)
         RCSUUIDListMap (reduceRCSUUIDListMap :RCSUUIDListMap ruuidlistm)]
@@ -269,11 +269,11 @@
 
 (defn getNodesByUUID
   "Get Nodes by UUID"
-  [& {:keys [:labels
-             :UUIDList
-             :tx]
-      :or {:labels []
-           :tx nil}}]
+  [& {:keys [labels
+             UUIDList
+             tx]
+      :or {labels []
+           tx nil}}]
   {:pre [(coll? labels)
          (coll? UUIDList)
          (every? string? UUIDList)]}
@@ -289,12 +289,12 @@
   )
 
 (defn getInRels
-  [& {:keys [:labels
-             :UUIDList
-             :tx]
-      :or {:labels []
-           :UUIDList []
-           :tx nil}}]
+  [& {:keys [labels
+             UUIDList
+             tx]
+      :or {labels []
+           UUIDList []
+           tx nil}}]
   {:pre [(every? string? UUIDList)]}
   (let [labelString (createLabelString :labels labels)
         builtQuery {:query (str "MATCH (n"
@@ -316,12 +316,12 @@
 
 (defn getNBH
   "GET NBH"
-  [& {:keys [:labels
-             :UUIDList
-             :tx]
-      :or {:labels []
-           :UUIDList []
-           :tx nil}}]
+  [& {:keys [labels
+             UUIDList
+             tx]
+      :or {labels []
+           UUIDList []
+           tx nil}}]
   {:pre [(coll? UUIDList)
          (every? string? UUIDList)]}
   (reset! nbhAtom
@@ -353,8 +353,8 @@
 
 (defn getSchema
   "Get constraints and indexes in neo4j."
-  [& {:keys [:tx]
-      :or {:tx nil}}]
+  [& {:keys [tx]
+      :or {tx nil}}]
   (let [constraintQ {:query "CALL db.constraints()"
                      :parameters {}}
         indexQ {:query "CALL db.indexes()"

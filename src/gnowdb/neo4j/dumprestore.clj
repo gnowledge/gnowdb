@@ -12,7 +12,7 @@
 )
 
 (defn dump
-  [& {:keys [:filePath]}]
+  [& {:keys [filePath]}]
   (println (gdriver/runQuery {:query "CALL apoc.export.graphml.all({filepath},{params})" :parameters { "filepath"  (str backupDir "/" filePath)
                                               "params" {"readLabels" true
                                                         "storeNodeIds" true
@@ -30,7 +30,7 @@
 )
 
 (defn restore
-  [& {:keys [:filePath]}]
+  [& {:keys [filePath]}]
   (gdriver/runQuery {:query "CALL apoc.import.graphml({filepath},{params})" :parameters {
                                               "filepath" (str backupDir "/" filePath)
                                               "params" {"readLabels" true

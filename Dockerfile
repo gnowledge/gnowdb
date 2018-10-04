@@ -26,7 +26,7 @@ MAINTAINER mrunal4888@gmail.com
 ENV LEIN_REPO=https://apkproxy.herokuapp.com/sgerrand/alpine-pkg-leiningen
 ENV LEIN_VERSION=2.8.1-r0
 ENV LEIN_ROOT=true
-ENV GNOWDB_REPO=https://github.com/xenomorph1096/gnowdb
+ENV GNOWDB_REPO=https://github.com/gnowledge/gnowdb
 
 
 RUN mkdir -p /usr/src/app   \

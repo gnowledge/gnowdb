@@ -22,7 +22,7 @@
                  [com.novemberain/pantomime "2.9.0"];;to extract mime types
                  [progrock "0.1.2"] ;;For progress bars
                  [org.slf4j/slf4j-api "1.6.1"] ;; Mrunal - Thu Oct  4 22:50:21 IST 2018 - To remove 'SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".' error - Ref(https://stackoverflow.com/questions/7421612/slf4j-failed-to-load-class-org-slf4j-impl-staticloggerbinder and https://stackoverflow.com/questions/24956310/clojure-log4j-1-2-16-slf4j-1-5-6-clashing-with-clj-tika-and-ring-middleware-l)
-                 ;; [org.slf4j/slf4j-log4j12 "1.6.1"]
+                 [org.slf4j/slf4j-log4j12 "1.6.1"] ;; Mrunal - Thu Oct  4 22:50:21 IST 2018 - To remove 'SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".' error - Ref(https://stackoverflow.com/questions/7421612/slf4j-failed-to-load-class-org-slf4j-impl-staticloggerbinder and https://stackoverflow.com/questions/24956310/clojure-log4j-1-2-16-slf4j-1-5-6-clashing-with-clj-tika-and-ring-middleware-l)
                 ] 
 
                  

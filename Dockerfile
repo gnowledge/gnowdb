@@ -17,22 +17,28 @@
 #                8. Expose 3000 port to render api call outputs in web browser
 #                9. Change the working directory as "/usr/src/app/gnowdb"
 #                4. Start lein ring server
+# File version : 2.0
+# Modified by  : Mr. Mrunal M. Nachankar
+# Modified on  : Fri Oct  5 02:05:28 IST 2018
+# v2.0 changes : 1. changed lein repo becuase of error (Ref - https://github.com/pandeiro/docker-lein/blob/master/Dockerfile)
+#                1.1 on terminal "WARNING: Ignoring https://apkproxy.herokuapp.com/sgerrand/alpine-pkg-leiningen/x86_64/APKINDEX.tar.gz: IO ERROR"
+#                1.2 on web url "https://apkproxy.herokuapp.com/sgerrand/alpine-pkg-leiningen/x86_64/APKINDEX.tar.gz:" - "GET https://api.github.com/repos/sgerrand/alpine-pkg-leiningen/releases/latest: 403 API rate limit exceeded for 54.161.227.147. (But here's the good news: Authenticated requests get a higher rate limit. Check out the documentation for more details.); rate reset in 9m11.102348936s"
 #--------------------------------------------------------------------#
 
 FROM clojure:tools-deps-1.9.0.394-alpine
 
 MAINTAINER mrunal4888@gmail.com
 
-ENV LEIN_REPO=https://apkproxy.herokuapp.com/sgerrand/alpine-pkg-leiningen
-ENV LEIN_VERSION=2.8.1-r0
+ENV LEIN_REPO=https://raw.githubusercontent.com/technomancy/leiningen/stable/bin/lein
 ENV LEIN_ROOT=true
-ENV GNOWDB_REPO=https://github.com/gnowledge/gnowdb
+ENV GNOWDB_REPO=https://github.com/mrunal4/gnowdb
 
 
 RUN mkdir -p /usr/src/app   \
     &&   cd /usr/src/app   \
-    &&   wget -P /etc/apk/keys/ https://alpine-pkgs.sgerrand.com/sgerrand.rsa.pub   \
-    &&   apk add --no-cache --repository=${LEIN_REPO} leiningen=${LEIN_VERSION}  git   \
+    &&   wget -q -O /usr/bin/lein ${LEIN_REPO}   \
+    &&   chmod +x /usr/bin/lein   \
+    &&   apk add --no-cache  git   \
     &&   cd /usr/src/app   \
     &&   git clone ${GNOWDB_REPO}   \
     &&   ls -ltr gnowdb   \

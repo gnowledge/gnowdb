@@ -8,7 +8,8 @@ services:
       - neo4j:neo4j_c
     ports:
       - 3000:3000
-    # volumes:
+    volumes:
+      - /tmp/gnowdb_data/gnowdb_settings:/root/gnowdb_settings
     #   - /tmp/gnowdb/data:/usr/src/app
 
   neo4j:

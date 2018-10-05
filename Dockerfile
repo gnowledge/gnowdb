@@ -23,6 +23,13 @@
 # v2.0 changes : 1. changed lein repo becuase of error (Ref - https://github.com/pandeiro/docker-lein/blob/master/Dockerfile)
 #                1.1 on terminal "WARNING: Ignoring https://apkproxy.herokuapp.com/sgerrand/alpine-pkg-leiningen/x86_64/APKINDEX.tar.gz: IO ERROR"
 #                1.2 on web url "https://apkproxy.herokuapp.com/sgerrand/alpine-pkg-leiningen/x86_64/APKINDEX.tar.gz:" - "GET https://api.github.com/repos/sgerrand/alpine-pkg-leiningen/releases/latest: 403 API rate limit exceeded for 54.161.227.147. (But here's the good news: Authenticated requests get a higher rate limit. Check out the documentation for more details.); rate reset in 9m11.102348936s"
+# File version : 3.0
+# Modified by  : Mr. Mrunal M. Nachankar
+# Modified on  : Fri Oct  5 23:56:57 IST 2018
+# v3.0 changes : 1. Removed unwanted blank line
+#                2. Removed unnecessary cd command
+#                3. As we just need to download the dependenices, I am usng "lein deps" instead of "lein repl"
+#                3. For using custom config(gconf.clj), Trying to mount it via volume (in docker-compose.yml). If file is present in required directory, just replace it with actual file (in Dockerfile). Once the changes are done, restart the container to make it effective."
 #--------------------------------------------------------------------#
 
 FROM clojure:tools-deps-1.9.0.394-alpine
@@ -33,21 +40,20 @@ ENV LEIN_REPO=https://raw.githubusercontent.com/technomancy/leiningen/stable/bin
 ENV LEIN_ROOT=true
 ENV GNOWDB_REPO=https://github.com/mrunal4/gnowdb
 
-
 RUN mkdir -p /usr/src/app   \
     &&   cd /usr/src/app   \
     &&   wget -q -O /usr/bin/lein ${LEIN_REPO}   \
     &&   chmod +x /usr/bin/lein   \
     &&   apk add --no-cache  git   \
-    &&   cd /usr/src/app   \
     &&   git clone ${GNOWDB_REPO}   \
     &&   ls -ltr gnowdb   \
     &&   cd gnowdb   \
-    &&   lein repl
+    &&   lein deps
 
 EXPOSE 3000
 
 WORKDIR /usr/src/app/gnowdb
 
-ENTRYPOINT cd /usr/src/app/gnowdb   \
+ENTRYPOINT if [ -f /root/gnowdb_settings/gconf.clj ]; then cp -av /root/gnowdb_settings/gconf.clj /usr/src/app/gnowdb/src/gnowdb/neo4j else echo "File not found" fi   \
+    &&   cd /usr/src/app/gnowdb   \
     &&   lein ring server

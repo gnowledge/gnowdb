@@ -30,6 +30,10 @@
 #                2. Removed unnecessary cd command
 #                3. As we just need to download the dependenices, I am usng "lein deps" instead of "lein repl"
 #                3. For using custom config(gconf.clj), Trying to mount it via volume (in docker-compose.yml). If file is present in required directory, just replace it with actual file (in Dockerfile). Once the changes are done, restart the container to make it effective."
+# File version : 3.1
+# Modified by  : Mr. Mrunal M. Nachankar
+# Modified on  : Sat Oct  6 01:36:48 IST 2018
+# v3.1 changes : 1. Added ";" for termination of bash/sh command execution and added print statement incase of file found.
 #--------------------------------------------------------------------#
 
 FROM clojure:tools-deps-1.9.0.394-alpine
@@ -54,6 +58,6 @@ EXPOSE 3000
 
 WORKDIR /usr/src/app/gnowdb
 
-ENTRYPOINT if [ -f /root/gnowdb_settings/gconf.clj ]; then cp -av /root/gnowdb_settings/gconf.clj /usr/src/app/gnowdb/src/gnowdb/neo4j else echo "File not found" fi   \
+ENTRYPOINT if [ -f /root/gnowdb_settings/gconf.clj ]; then echo "File found, hence copying the file gconf.clj"; cp -av /root/gnowdb_settings/gconf.clj /usr/src/app/gnowdb/src/gnowdb/neo4j; else echo "File not found"; fi   \
     &&   cd /usr/src/app/gnowdb   \
     &&   lein ring server

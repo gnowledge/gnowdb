@@ -3,9 +3,9 @@ services:
   gnowdb:
     build: ./
     image: gnowdb:v1
-    container_name: gnowdb_c
+    container_name: gnowdbc
     links:
-      - neo4j:neo4j_c
+      - neo4j:neo4jc
     ports:
       - 3000:3000
     volumes:
@@ -14,7 +14,7 @@ services:
 
   neo4j:
     image: neo4j:3.4.7-enterprise
-    container_name: neo4j_c
+    container_name: neo4jc
     ports:
       - 7473:7473           #https
       - 7474:7474           #http

@@ -38,6 +38,10 @@
 # Modified by  : Mr. Mrunal M. Nachankar
 # Modified on  : Sun Oct  7 11:25:09 IST 2018
 # v3.2 changes : 1. Added install command for rcs.
+# File version : 3.3
+# Modified by  : Mr. Mrunal M. Nachankar
+# Modified on  : Sun Oct  7 14:20:09 IST 2018
+# v3.3 changes : Changed server to server-headless to remove warning as suggested by Surrendra
 #--------------------------------------------------------------------#
 
 FROM clojure:tools-deps-1.9.0.394-alpine
@@ -65,4 +69,4 @@ WORKDIR /usr/src/app/gnowdb
 
 ENTRYPOINT if [ -f /root/gnowdb_settings/gconf.clj ]; then echo "File found, hence copying the file gconf.clj"; cp -av /root/gnowdb_settings/gconf.clj /usr/src/app/gnowdb/src/gnowdb/neo4j; else echo "File not found"; fi   \
     &&   cd /usr/src/app/gnowdb   \
-    &&   lein ring server
+    &&   lein ring server-headless

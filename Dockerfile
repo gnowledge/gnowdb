@@ -34,6 +34,10 @@
 # Modified by  : Mr. Mrunal M. Nachankar
 # Modified on  : Sat Oct  6 01:36:48 IST 2018
 # v3.1 changes : 1. Added ";" for termination of bash/sh command execution and added print statement incase of file found.
+# File version : 3.2
+# Modified by  : Mr. Mrunal M. Nachankar
+# Modified on  : Sun Oct  7 11:25:09 IST 2018
+# v3.2 changes : 1. Added install command for rcs.
 #--------------------------------------------------------------------#
 
 FROM clojure:tools-deps-1.9.0.394-alpine
@@ -48,6 +52,7 @@ RUN mkdir -p /usr/src/app   \
     &&   cd /usr/src/app   \
     &&   wget -q -O /usr/bin/lein ${LEIN_REPO}   \
     &&   chmod +x /usr/bin/lein   \
+    &&   apk add rcs --repository http://dl-cdn.alpinelinux.org/alpine/edge/testing/ --allow-untrusted --no-cache   \
     &&   apk add --no-cache  git   \
     &&   git clone ${GNOWDB_REPO}   \
     &&   ls -ltr gnowdb   \

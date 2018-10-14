@@ -4,245 +4,41 @@
             [clojure.java.io :as io]
             [clojure.string :as clojure.string]
             [gnowdb.neo4j.gdriver :as gdriver]
-            [gnowdb.neo4j.gcust :as gcust]))
-
-(defn addStringToMapKeys
-  [stringMap string]
-  {:pre [(string? string)
-         (map? stringMap)]}
-  (if (empty? stringMap)
-    {}
-    (apply conj
-           (map
-            (fn
-              [[stringKey value]]
-              {(str stringKey string) value}
-              )
-            stringMap
+            [gnowdb.neo4j.gcust :as gcust]
+            [gnowdb.neo4j.queryAggregator :as queryAggregator]
             )
-           )
+  (:use [gnowdb.neo4j.gqb]))
+
+(defn _keyss
+  [map]
+  (if (empty? map)
+    []
+    (clojure.core/keys map)))
+
+(defn getUUIDEnabled
+  [details]
+  (def ^{:private true} uuidEnabled
+    (details :uuidEnabled)
     )
   )
-
-(defn- removeVectorStringSuffixes
-  "Removes the string suffix from the Vector members"
-  [mapKeyVector stringSuffix]
-  (
-   into []
-   (
-    map (fn
-          [keyValue]
-          (clojure.string/replace keyValue (java.util.regex.Pattern/compile (str stringSuffix "$")) "")
-          )
-    mapKeyVector
-    )
-   )
-  )
-
-(defn- createParameterPropertyString
-  "Create Property String with parameter fields using map keys"
-  [propertyMap & [characteristicString]]
-  ;;The characteristicString is sometimes appended to map keys to distinguish
-  ;;the keys when multiple maps and their keys are used in the same cypher
-  ;;query with parameters
-  (if
-      (empty? propertyMap)
-    ""
-    (str "{ "
-         (clojure.string/join ", " 
-                              (vec 
-                               (map #(str %1 ":{" %2 "}")
-                                    (removeVectorStringSuffixes (vec (keys propertyMap)) characteristicString)
-                                    (vec (keys propertyMap))
-                                    )
-                               )
-                              )
-         " }"
-         )
-    )
-  )
-
-(defn- combinePropertyMap
-  "Combine PropertyMaps and associated propertyStrings.
-  Name PropertyMaps appropriately.
-  Input PropertyMaps as map of maps.
-  Keys Should be strings"
-  [propertyMaps]
-  {:combinedPropertyMap (reduce
-                         #(if
-                              (empty? (%2 1))
-                            %1
-                            (merge %1
-                                   (addStringToMapKeys
-                                    (%2 1)
-                                    (%2 0)
-                                    )
-                                   )
-                            )
-                         {}
-                         (seq propertyMaps)
-                         )
-   :propertyStringMap (reduce
-                       #(assoc
-                         %1
-                         (%2 0)
-                         (if
-                             (empty? (%2 1))
-                           ""
-                           (createParameterPropertyString (addStringToMapKeys (%2 1) (%2 0)) (%2 0))
-                           )
-                         )
-                       {}
-                       (seq propertyMaps)
-                       )
-   }
-  )
-
-(defn createEditString
-  "Creates an edit string.
-  eg.., SET varName.prop1={prop1} , varName.prop2={prop2}
-  :varName should be name of the node/relation variable.
-  :editPropertyList should be a collection of properties."
-  [& {:keys [:varName
-             :editPropertyList
-             :characteristicString]
-      :or {:characteristicString ""}}]
-  {:pre [(string? varName)
-         (coll? editPropertyList)
-         (every? string? editPropertyList)]}
-  (str " SET "
-       (clojure.string/join " ,"
-                            (map #(str varName "." %1 " = {" %2 "}")
-                                 (removeVectorStringSuffixes editPropertyList characteristicString)
-                                 editPropertyList)
-                            )
-       )
-  )
-
-(defn createRemString
-  "Creates a property removal string.
-  eg.., REMOVE  varName.prop1 ,varName.prop2.
-  :varName should be a string representing node/relation variable.
-  :remPropertyList should be collection of properties for removal"
-  [& {:keys [:varName :remPropertyList]}]
-  {:pre [(string? varName)
-         (coll? remPropertyList)
-         (every? string? remPropertyList)]}
-  (str "REMOVE "
-       (clojure.string/join ", "
-                            (vec (map #(str varName"."%1) 
-                                      remPropertyList
-                                      )	
-                                 )
-                            )
-       )
-  )
-
-(defn createRenameString
-  "Creates a property rename string.
-  eg.., WHERE varName.prop1R is null and varName.prop2R is null .. SET varName.prop1R=varName.prop1, varName.prop1R=varName.prop1 REMOVE varName.prop1 ,varName.prop2
-  :varName should be a string representing node/relation variable.
-  :renameMap should be a map with keys as propertyNames and values as newNames.
-  :addWhere? boolean, whether the keyword WHERE is to be included"
-  [& {:keys [:varName
-             :renameMap
-             :addWhere?]
-      :or {:addWhere? true}}]
-  {:pre [(string? varName)
-         (not (empty? renameMap))
-         (every? string? (keys renameMap))
-         (every? string? (vals renameMap))
-         ]
-   }
-  (str (if addWhere? "WHERE ") (clojure.string/join " and "
-                                                    (map #(str varName"."%" is null")
-                                                         (vals renameMap)
-                                                         )
-                                                    )
-       " SET " (clojure.string/join ", "
-                                    (map #(str varName"."(% 1)"="varName"."(% 0))
-                                         (into [] renameMap)
-                                         )
-                                    )
-       " " (createRemString :varName varName
-                            :remPropertyList (keys renameMap))
-       )
-  )
-
-(defn editCollection
-  "Edits a collection of strings to represent edited property from createPropListEditString.
-  :coll should be a collection of strings
-  :editType should be one of APPEND,DELETE,REPLACE.
-  :editVal should be parameter representing value for APPEND/DELETE/REPLACE.
-  :replaceVal should be parameter representing intended value, if :editVal is REPLACE"
-  [& {:keys [:coll
-             :editType
-             :editVal
-             :replaceVal]
-      :or [:replaceVal ""]}]
-  {:pre [(coll? coll)
-         (every? string? coll)
-         (contains? #{"APPEND" "DELETE" "REPLACE"} editType)
-         (string? editVal)
-         (or (string? replaceVal) (not= "REPLACE" editType))]}
-  (case editType
-    "APPEND" (conj coll editVal)
-    "DELETE" (remove #(= editVal %) coll)
-    "REPLACE" (concat (remove #(= editVal %) coll) [replaceVal])
-    )
-  )
-
-(defn createPropListEditString
-  "Creates a string that edits a property that is a list, by append/delete/replace an element.
-  :varName should be string.
-  :propName should be string, representing the propertyName.
-  :editType should be one of APPEND,DELETE,REPLACE.
-  :editVal should be parameter representing value for APPEND/DELETE/REPLACE.
-  :replaceVal should be parameter representing intended value, if :editVal is REPLACE.
-  :withWhere? should be true if Where condition should be included."
-  [& {:keys [:varName
-             :propName
-             :editType
-             :editVal
-             :replaceVal
-             :withWhere?]
-      :or [:replaceVal ""
-           :withWhere? true]}]
-  {:pre [(string? varName)
-         (string? propName)
-         (contains? #{"APPEND" "DELETE" "REPLACE"} editType)
-         (string? editVal)
-         (or (string? replaceVal) (not= "REPLACE" editType))
-         ]
-   }
-  (str 
-   (case editType
-     "APPEND" (str " SET "varName"."propName
-                   " = " varName"."propName" + {"editVal"}")
-     "DELETE" (str (if withWhere? (str "WHERE {"editVal"} IN "varName"."propName) "")" SET "varName"."propName
-                   " = FILTER(x IN "varName"."propName" WHERE x <> {"editVal"})")
-     "REPLACE" (str (if withWhere? (str "WHERE {"editVal"} IN "varName"."propName) "")" SET "varName"."propName
-                    " = FILTER(x IN "varName"."propName" WHERE x <> {"editVal"}) + {"replaceVal"}")
-     )
-   )
-  )
-
-;;General NEO4J functions start here
 
 (defn generateUUID
+  "No arguments"
   []
   (str (java.util.UUID/randomUUID))
   )
 
 (defn getAllLabels
-  "Get all the Labels from the graph, parsed."
+  "Get all the Labels from the graph, parsed.
+  No arguments"
   []
   (map #(% "LABELS(n)") (((gdriver/runQuery {:query "MATCH (n) RETURN DISTINCT LABELS(n)" :parameters {}}) :results) 0)
        )
   )
 
 (defn getAllNodes
-  "Returns a lazy sequence of labels and properties of all nodes in the graph"
+  "Returns a lazy sequence of labels and properties of all nodes in the graph
+  No arguments"
   []
   (map #(% "n") (((gdriver/runQuery {:query "MATCH (n) RETURN n" :parameters {}}) :results) 0))
   )
@@ -252,52 +48,78 @@
   Node properties should be a clojure map.
   Map keys will be used as neo4j node keys.
   Map keys should be Strings only.
-  Map values must be neo4j compatible Objects"
-  [& {:keys [:label
-             :parameters
-             :execute?
-             :unique?]
-      :or {:execute? true
-           :unique? false
-           :parameters {}}
+  Map values must be neo4j compatible Objects
+  
+  Mandatory arguments:
+  :labels Should not be empty and must be a collection of string labels"
+  [& {:keys [labels
+             parameters
+             aggregator
+             execute?
+             unique?
+             uuid?]
+      :or {execute? true
+           unique? false
+           uuid? uuidEnabled
+           parameters {}}
       :as keyArgs
       }
    ]
+  {:pre [(coll? labels)
+         (not (empty? labels))]}
   (let [queryType 
- 	(if unique?
+        (if unique?
           "MERGE"
           "CREATE"
           )
-        mergedParams (merge parameters {"UUID" (generateUUID)})
-  	builtQuery  	{:query (str queryType " (node:" label " "
+        mergedParams (if uuid? (merge parameters {"UUID" (generateUUID)}) parameters)
+        builtQuery  	{:query (str queryType " (node"(createLabelString :labels labels)
                                      (createParameterPropertyString
-                                      mergedParams) " )")
-                         :parameters mergedParams}
+                                      mergedParams) " )"
+                                     (createReturnString ["node" "UUID" "UUID"]))
+                         :parameters mergedParams
+                         :doRCS? true
+                         :rcs-vars ["UUID"]
+                         :labels labels}
         ]
     (if execute?
-      ((gdriver/runQuery builtQuery) :summary)
+      (if aggregator
+        (queryAggregator/addQueries aggregator "Data" (merge builtQuery {:IDMap mergedParams}))
+        ((gdriver/runQuery builtQuery) :summary)
+        )
       builtQuery
       )
     )
   )  
 
+;; (defn createNodes
+;;   "Create Multiple Nodes in One Query"
+;;   [])
+
 (defn deleteRelation
-  "Delete a relation between two nodes matched with their properties (input as clojure map) with it's own properties"
-  [& {:keys [:fromNodeLabel
-             :fromNodeParameters
-             :relationshipType
-             :relationshipParameters
-             :toNodeLabel
-             :toNodeParameters
-             :execute?]
-      :or {:execute? true
-           :toNodeParameters {}
-           :fromNodeParameters {}
-           :relationshipParameters {}}}]
+  "Delete a relation between two nodes matched with their properties (input as clojure map) with it's own properties
+  No mandatory arguments, when used with no parameters, it will return a query to delete all relations in the neo4j db"
+  [& {:keys [fromNodeLabels
+             fromNodeParameters
+             relationshipType
+             relationshipParameters
+             toNodeLabels
+             toNodeParameters
+             execute?]
+      :or {fromNodeLabels []
+           toNodeLabels []
+           relationshipType ""
+           execute? false
+           toNodeParameters {}
+           fromNodeParameters {}
+           relationshipParameters {}}}]
   {:pre [
-         (every? string? [fromNodeLabel relationshipType toNodeLabel])
+         (every? coll? [fromNodeLabels toNodeLabels])
          (every? map? [fromNodeParameters relationshipParameters toNodeParameters])]}
-  (let [combinedProperties
+  (let [fromNodeLabel (createLabelString :labels fromNodeLabels)
+        toNodeLabel (createLabelString :labels toNodeLabels)
+        relationshipTypewb (createLabelString :labels [relationshipType])
+        combinedProperties
         (combinePropertyMap
          {"1" fromNodeParameters
           "2" toNodeParameters
@@ -306,42 +128,57 @@
          )
         builtQuery
         {:query
-         (str "MATCH (node1:"fromNodeLabel" "
+         (str "MATCH (node1"fromNodeLabel" "
               ((combinedProperties :propertyStringMap) "1")
-              " )-[rel:"relationshipType" "
+              " )-[rel"relationshipTypewb" "
               ((combinedProperties :propertyStringMap) "R")
-              " ]->(node2:"toNodeLabel" "
+              " ]->(node2"toNodeLabel" "
               ((combinedProperties :propertyStringMap) "2")
-              " )  DELETE rel")
+              " )  DELETE rel"
+              (createReturnString ["node2" "UUID" "UUID"]))
+         :doRCS? true
+         :rcs-vars ["UUID"]
          :parameters (combinedProperties :combinedPropertyMap)}]
     (if execute?
-      (gdriver/runQuery builtQuery)
+      ((gdriver/runQuery builtQuery) :summary)
       builtQuery
       )
     )
   )
 
 (defn editRelation
-  "Edit Parameters of a relation"
-  [& {:keys [:fromNodeLabel
-             :fromNodeParameters
-             :relationshipType
-             :relationshipParameters
-             :toNodeLabel
-             :toNodeParameters
-             :newRelationshipParameters
-             :execute?]
-      :or {:execute? true
-           :toNodeParameters {}
-           :fromNodeParameters {}
-           :relationshipParameters {}}
+  "Edit Parameters of a relation
+  Mandatory arguments:
+  :newRelelationshipParamters should be a non-empty clojure map
+  
+  Not specifying :fromNodeLabels, :toNodeLabels, and the other arguments,
+  will affect all relations in the graphdb so use wisely"
+  [& {:keys [fromNodeLabels
+             fromNodeParameters
+             relationshipType
+             relationshipParameters
+             toNodeLabels
+             toNodeParameters
+             newRelationshipParameters
+             execute?]
+      :or {execute? false
+           fromNodeLabels []
+           toNodeLabels []
+           relationshipType ""
+           toNodeParameters {}
+           fromNodeParameters {}
+           relationshipParameters {}}
       }
    ]
   {:pre [
-         (every? string? [fromNodeLabel relationshipType toNodeLabel])
+         (every? coll? [fromNodeLabels toNodeLabels])
          (every? map? [fromNodeParameters relationshipParameters toNodeParameters])
-         (map? newRelationshipParameters)]}
-  (let [combinedProperties
+         (map? newRelationshipParameters)
+         (not (empty? newRelationshipParameters))]}
+  (let [toNodeLabel (createLabelString :labels toNodeLabels)
+        fromNodeLabel (createLabelString :labels fromNodeLabels)
+        relationshipTypewb (createLabelString :labels [relationshipType])
+        combinedProperties
         (combinePropertyMap
          {"1" fromNodeParameters
           "2" toNodeParameters
@@ -351,16 +188,19 @@
          )
         builtQuery
         {:query
-         (str "MATCH (node1:"fromNodeLabel" "
+         (str "MATCH (node1"fromNodeLabel" "
               ((combinedProperties :propertyStringMap) "1")
-              " )-[rel:"relationshipType" "
+              " )-[rel"relationshipTypewb" "
               ((combinedProperties :propertyStringMap) "R")
-              " ]->(node2:"toNodeLabel" "
+              " ]->(node2"toNodeLabel" "
               ((combinedProperties :propertyStringMap) "2")
               " ) "(createEditString :varName "rel"
                                      :editPropertyList (keys (addStringToMapKeys newRelationshipParameters "RE"))
                                      :characteristicString "RE")
+              (createReturnString ["node2" "UUID" "UUID"])
               )
+         :doRCS? true
+         :rcs-vars ["UUID"]
          :parameters (combinedProperties :combinedPropertyMap)}]
     (if execute?
       (gdriver/runQuery builtQuery)
@@ -371,31 +211,38 @@
 
 (defn editRelationPropList
   "Edit Parameter of a relation that is a List
-  :propName should be string, representing the propertyName.
-  :editType should be one of APPEND,DELETE,REPLACE.
-  :editVal should represent value for APPEND/DELETE/REPLACE.
-  :replaceVal should be intended value, if :editVal is REPLACE"
-  [& {:keys [:fromNodeLabel
-             :fromNodeParameters
-             :relationshipType
-             :relationshipParameters
-             :toNodeLabel
-             :toNodeParameters
-             :propName
-             :editType
-             :editVal
-             :replaceVal
-             :execute?]
-      :or {:execute? true
-           :toNodeParameters {}
-           :fromNodeParameters {}
-           :relationshipParameters {}}
+  :propName should be string, representing the propertyName.(Mandatory)
+  :editType should be one of APPEND,DELETE,REPLACE.(Mandatory)
+  :editVal should represent value for APPEND/DELETE/REPLACE.(Mandatory)
+  :replaceVal should be intended value, if :editVal is REPLACE
+  As usual, not specifying :fromNodeLabels, :toNodeLabels, :fromNodeParameters etc,
+  will affect all nodes/relations."
+  [& {:keys [fromNodeLabels
+             fromNodeParameters
+             relationshipType
+             relationshipParameters
+             toNodeLabels
+             toNodeParameters
+             propName
+             editType
+             editVal
+             replaceVal
+             execute?]
+      :or {execute? true
+           toNodeLabels []
+           fromNodeLabels []
+           relationshipType ""
+           toNodeParameters {}
+           fromNodeParameters {}
+           relationshipParameters {}}
       }
    ]
-  {:pre [
-         (every? string? [fromNodeLabel relationshipType toNodeLabel])
+  {:pre [(every? coll? [fromNodeLabels toNodeLabels])
          (every? map? [fromNodeParameters relationshipParameters toNodeParameters])]}
-  (let [combinedProperties
+  (let [toNodeLabel (createLabelString :labels toNodeLabels)
+        fromNodeLabel (createLabelString :labels fromNodeLabels)
+        relationshipTypewb (createLabelString :labels [relationshipType])
+        combinedProperties
         (combinePropertyMap
          {"1" fromNodeParameters
           "2" toNodeParameters
@@ -404,18 +251,20 @@
          )
         builtQuery
         {:query
-         (str "MATCH (node1:"fromNodeLabel" "
+         (str "MATCH (node1"fromNodeLabel" "
               ((combinedProperties :propertyStringMap) "1")
-              " )-[rel:"relationshipType" "
+              " )-[rel"relationshipTypewb" "
               ((combinedProperties :propertyStringMap) "R")
-              " ]->(node2:"toNodeLabel" "
+              " ]->(node"toNodeLabel" "
               ((combinedProperties :propertyStringMap) "2")
               " ) "(createPropListEditString :varName "rel"
                                              :propName propName
                                              :editType editType
                                              :editVal "ATT"
                                              :replaceVal "att")
-              )
+              (createReturnString ["node" "UUID" "UUID"]))         
+         :doRCS? true
+         :rcs-vars ["UUID"]
          :parameters (merge {"ATT" editVal
                              "att" replaceVal}
                             (combinedProperties :combinedPropertyMap)
@@ -430,26 +279,33 @@
   )
 
 (defn createRelation
-  "Relate two nodes matched with their properties (input as clojure map) with it's own properties"
-  [& {:keys [:fromNodeLabel
-             :fromNodeParameters
-             :relationshipType
-             :relationshipParameters
-             :toNodeLabel
-             :toNodeParameters
-             :execute?
-             :unique?]
-      :or {:execute? true
-           :unique? false
-           :toNodeParameters {}
-           :fromNodeParameters {}
-           :relationshipParameters {}}
+  "Relate two nodes matched with their properties (input as clojure map) with it's own properties
+  
+  No mandatory Arguments, but when using with no arguments it will create a junk relation between ALL nodes"
+  [& {:keys [fromNodeLabels
+             fromNodeParameters
+             relationshipType
+             relationshipParameters
+             toNodeLabels
+             toNodeParameters
+             execute?
+             unique?]
+      :or {execute? true
+           unique? false
+           toNodeLabels []
+           fromNodeLabels []
+           relationshipType ""
+           toNodeParameters {}
+           fromNodeParameters {}
+           relationshipParameters {}}
       }
    ]
-  {:pre [
-         (every? string? [fromNodeLabel relationshipType toNodeLabel])
+  {:pre [(every? coll? [fromNodeLabels toNodeLabels])
          (every? map? [fromNodeParameters relationshipParameters toNodeParameters])]}
-  (let [combinedProperties
+  (let [toNodeLabel (createLabelString :labels toNodeLabels)
+        fromNodeLabel (createLabelString :labels fromNodeLabels)
+        relationshipTypewb (createLabelString :labels [relationshipType])
+        combinedProperties
         (combinePropertyMap
          {"1" fromNodeParameters
           "2" toNodeParameters
@@ -463,13 +319,16 @@
           )
         builtQuery
         {:query
-         (str "MATCH (node1:" fromNodeLabel " "
+         (str "MATCH (node1" fromNodeLabel " "
               ((combinedProperties :propertyStringMap) "1")
-              " ) , (node2:" toNodeLabel " "
+              " ) , (node2" toNodeLabel " "
               ((combinedProperties :propertyStringMap) "2")
-              " ) CREATE " unique " (node1)-[:" relationshipType " "
+              " ) CREATE " unique " (node1)-[" relationshipTypewb " "
               ((combinedProperties :propertyStringMap) "R")
-              " ]->(node2)")
+              " ]->(node2)"
+              (createReturnString ["node2" "UUID" "UUID"]))
+         :doRCS? true
+         :rcs-vars ["UUID"]
          :parameters (combinedProperties :combinedPropertyMap)}]
     (if execute?
       (gdriver/runQuery builtQuery)
@@ -478,22 +337,50 @@
     )
   )
 
-(defn deleteDetachNodes
-  "Delete node(s) matched using property map and detach (remove relationships)"
-  [& {:keys [:label
-             :parameters
-             :execute?]
-      :or {:execute? true
-           :parameters {}}
+(defn mergeRelation
+  "Create, if not exists, a relation betrween two nodes matched with their properties (input as clojure map) with it's own properties
+  No mandatory arguments. But use wisely"
+  [& {:keys [fromNodeLabels
+             fromNodeParameters
+             relationshipType
+             relationshipParameters
+             toNodeLabels
+             toNodeParameters
+             execute?]
+      :or {execute? true
+           toNodeLabels []
+           fromNodeLabels []
+           relationshipType ""
+           toNodeParameters {}
+           fromNodeParameters {}
+           relationshipParameters {}}
       }
    ]
-  (let [builtQuery {:query (str "MATCH (node:" label " "
-                                (createParameterPropertyString parameters)
-                                " ) DETACH DELETE node")
-                    :parameters parameters}
-        ]
-    (if
-        execute?
+  {:pre [(every? coll? [fromNodeLabels toNodeLabels])
+         (every? map? [fromNodeParameters relationshipParameters toNodeParameters])]}
+  (let [toNodeLabel (createLabelString :labels toNodeLabels)
+        fromNodeLabel (createLabelString :labels fromNodeLabels)
+        relationshipTypewb (createLabelString :labels [relationshipType])
+        combinedProperties
+        (combinePropertyMap
+         {"1" fromNodeParameters
+          "2" toNodeParameters
+          "R" relationshipParameters
+          }
+         )
+        builtQuery {:query
+                    (str "MATCH (node1" fromNodeLabel " "
+                         ((combinedProperties :propertyStringMap) "1")
+                         " ) , (node2" toNodeLabel " "
+                         ((combinedProperties :propertyStringMap) "2")
+                         " ) MERGE  (node1)-[" relationshipTypewb " "
+                         ((combinedProperties :propertyStringMap) "R")
+                         " ]->(node2)"
+                         (createReturnString ["node2" "UUID" "UUID"]))
+                    :doRCS? true
+                    :rcs-vars ["UUID"]
+                    :parameters (combinedProperties :combinedPropertyMap)}]
+    (if execute?
       (gdriver/runQuery builtQuery)
       builtQuery
       )
@@ -501,18 +388,24 @@
   )
 
 (defn deleteNodes
-  "Delete node(s) matched using property map"
-  [& {:keys [:label
-             :parameters
-             :execute?]
-      :or {:execute? true
-           :parameters {}}
+  "Delete node(s) matched using property map
+  No mandatory Arguments, but if you execute without arguments, it will try
+  to delete all nodes!!"
+  [& {:keys [labels
+             parameters
+             execute?]
+      :or {labels []
+           execute? false
+           parameters {}}
       }
    ]
-  (let [builtQuery {:query (str "MATCH (node:"label" "
+  (let [builtQuery {:query (str "MATCH (node"(createLabelString :labels labels)" "
                                 (createParameterPropertyString parameters)
-                                " ) DELETE node")
-                    :parameters parameters}
+                                " ) WITH node, node.UUID AS UUID DELETE node"
+                                " RETURN UUID")
+                    :parameters parameters
+                    :rcs-vars ["UUID"]
+                    :rcs-bkp? true}
         ]
     (if
         execute?
@@ -522,29 +415,61 @@
     )
   )
 
-
+(defn deleteDetachNodes
+  "Delete node(s) matched using property map and detach (remove relationships)
+  No mandatory arguments, but use wisely"
+  [& {:keys [labels
+             parameters
+             execute?]
+      :or {labels []
+           execute? false
+           parameters {}}
+      }
+   ]
+  (let [builtQueries [(deleteRelation :fromNodeLabels labels
+                                      :fromNodeParameters parameters
+                                      :execute? false)
+                      (deleteRelation :toNodeLabels labels
+                                      :toNodeParameters parameters
+                                      :execute? false)
+                      (deleteNodes :labels labels
+                                   :parameters parameters
+                                   :execute? false)]
+        ]
+    (if
+        execute?
+      (apply gdriver/runQuery builtQueries)
+      builtQueries
+      )
+    )
+  )
 
 (defn removeNodeProperties
   "Remove Properties of Node(s).
-  :propList should be a list of properties to be deleted."
-  [& {:keys [:label
-             :parameters
-             :propList
-             :execute?]
-      :or {:propList {}
-           :execute? true
-           :parameters {}}
+  :propList should be a list of properties to be deleted.
+  
+  No mandatory arguments, but will try to fetch all node UUID when no
+  arguments are given"
+  [& {:keys [labels
+             parameters
+             propList
+             execute?]
+      :or {labels []
+           propList []
+           execute? true
+           parameters {}}
       }
    ]
-  {:pre [(string? label)
-         (map? parameters)
+  {:pre [(map? parameters)
          (coll? propList)
          (every? string? propList)]}
-  (let [builtQuery {:query (str "MATCH (node:"label" "
+  (let [builtQuery {:query (str "MATCH (node"(createLabelString :labels labels)" "
                                 (createParameterPropertyString parameters)
                                 " ) "(createRemString :varName "node"
                                                       :remPropertyList propList)
-                                )
+                                (createReturnString ["node" "UUID" "UUID"]))
+                    :doRCS? true
+                    :rcs-vars ["UUID"]
                     :parameters parameters
                     }
         ]
@@ -557,26 +482,35 @@
   )
 
 (defn editNodeProperties
-  "Edit Properties of Node(s)"
-  [& {:keys [:label
-             :parameters
-             :changeMap
-             :execute?]
-      :or {:changeMap {}
-           :execute? true
-           :parameters {}}
+  "Edit Properties of Node(s)
+
+  No mandatory arguments, but will try to fetch all node UUIDs when no
+  arguments are given"
+  [& {:keys [labels
+             parameters
+             changeMap
+             execute?]
+      :or {labels []
+           changeMap {}
+           execute? true
+           parameters {}}
       }
    ]
+  {:pre [(map? parameters)
+         (map? changeMap)]}
   (let [mPM (addStringToMapKeys parameters "M")
         tPME (addStringToMapKeys changeMap "E")
-        builtQuery {:query (str "MATCH (node1:" label " "
+        builtQuery {:query (str "MATCH (node1"(createLabelString :labels labels)" "
                                 (createParameterPropertyString mPM "M")
                                 " ) "(createEditString :varName "node1"
                                                        :editPropertyList (keys tPME)
                                                        :characteristicString "E"
                                                        )
-                                )
+                                (createReturnString ["node1" "UUID" "UUID"]))
+                    :doRCS? true
+                    :rcs-vars ["UUID"]
                     :parameters (merge mPM tPME)
+                    :labels labels
                     }
         ]
     (if
@@ -587,23 +521,30 @@
   )
 
 (defn renameNodeProperties
-  "Rename node(s) properties."
-  [& {:keys [:label
-             :parameters
-             :renameMap
-             :execute?]
-      :or {:execute? true
-           :parameters {}}
+  "Rename node(s) properties.
+  
+  :labels should be a collection of string labels
+  :parameters should be a map to match a node or nodes with
+  :renameMap should be a map eg. {'oldParameterName' 'NewParameterName'} (Mandatory)"
+  [& {:keys [labels
+             parameters
+             renameMap
+             execute?]
+      :or {labels []
+           execute? true
+           parameters {}}
       }
    ]
-  {:pre [(string? label)
-         (map? parameters)
+  {:pre [(map? parameters)
          (map renameMap)]}
   (let [builtQuery
-        {:query (str "MATCH (node:" label " "
+        {:query (str "MATCH (node"(createLabelString :labels labels)" "
                      (createParameterPropertyString parameters) " ) "
                      (createRenameString :varName "node"
-                                         :renameMap renameMap))
+                                         :renameMap renameMap)
+                     (createReturnString ["node" "UUID" "UUID"]))
+         :doRCS? true
+         :rcs-vars ["UUID"]
          :parameters {}}
         ]
     (if
@@ -615,35 +556,37 @@
 
 (defn editNodePropList
   "Edits a property of a node with a list as a value.
-  :label should be string.
+  :labels should be collection.
   :parameters should be a map.
-  :propName should be string, representing the propertyName.
-  :editType should be one of APPEND,DELETE,REPLACE.
-  :editVal should represent value for APPEND/DELETE/REPLACE.
+  :propName should be string, representing the propertyName.(Mandatory)
+  :editType should be one of APPEND,DELETE,REPLACE.(Mandatory)
+  :editVal should represent value for APPEND/DELETE/REPLACE.(Mandatory if not deleting)
   :replaceVal should be intended value, if :editVal is REPLACE"
-  [& {:keys [:label
-             :parameters
-             :propName
-             :editType
-             :editVal
-             :replaceVal
-             :execute?]
-      :or [:replaceVal nil
-           :parameters {}
-           :execute? true]
+  [& {:keys [labels
+             parameters
+             propName
+             editType
+             editVal
+             replaceVal
+             execute?]
+      :or {labels []
+           replaceVal nil
+           parameters {}
+           execute? true}
       }
    ]
-  {:pre [(string? label)
-         (map? parameters)]}
+  {:pre [(map? parameters)]}
   (let [combinedPropertyMap (combinePropertyMap {"NP" parameters})
-        builtQuery {:query (str "MATCH (node:"label" "
+        builtQuery {:query (str "MATCH (node"(createLabelString :labels labels)" "
                                 ((combinedPropertyMap :propertyStringMap) "NP")
                                 ") "(createPropListEditString :varName "node"
                                                               :propName propName
                                                               :editType editType
                                                               :editVal "ATT"
                                                               :replaceVal "att")
-                                )
+                                (createReturnString ["node" "UUID" "UUID"]))
+                    :doRCS? true
+                    :rcs-vars ["UUID"]
                     :parameters (merge {"ATT" editVal "att" replaceVal}
                                        (combinedPropertyMap :combinedPropertyMap)
                                        )
@@ -658,22 +601,23 @@
 
 (defn removeLabels
   "Removes labels from a node
-  :remLabelList should be a list of strings"
-  [& {:keys [:label
-             :properties
-             :remLabelList
-             :execute?]
-      :or {:properties {}}
-      :execute? true}]
-  {:pre [(string? label)
-         (map? properties)
+  :remLabelList should be a list of strings (Mandatory)"
+  [& {:keys [labels
+             properties
+             remLabelList
+             execute?]
+      :or {labels []
+           properties {}
+           execute? true}}]
+  {:pre [(map? properties)
          (coll? remLabelList)
          (every? string? remLabelList)
          (not (empty? remLabelList))]}
-  (let [builtQuery {:query (str "MATCH (obj:"label" "(createParameterPropertyString properties)") "
-                                (clojure.string/join " " (map #(str "REMOVE obj:"%) remLabelList)
-                                                     )
-                                )
+  (let [builtQuery {:query (str "MATCH (obj"(createLabelString :labels labels)" "(createParameterPropertyString properties)") "
+                                (clojure.string/join " " (map #(str "REMOVE obj:"(backtick %)) remLabelList))
+                                (createReturnString ["obj" "UUID" "UUID"]))
+                    :doRCS? true
+                    :rcs-vars ["UUID"]
                     :parameters properties}]
     (if execute?
       (gdriver/runQuery builtQuery)
@@ -683,62 +627,179 @@
 
 (defn renameLabels
   "Renames label(s) of a node/relation.
-  :objectType should be NODE or RELATION.
-  :replaceLabelMap should be a map of strings, with keys as existing labels and the values as newLabels.
+  :objectType should be NODE or RELATION.(Mandatory)
+  :replaceLabelMap should be a map of strings, with keys as existing labels and the values as newLabels.(Mandatory)
   if a label with a particular key doesnt exist, the new label will be added.
-  if :objectType is RELATION, remLabelList can only have one string"
-  [& {:keys [:label
-             :properties
-             :objectType
-             :replaceLabelMap
-             :execute?]
-      :or {:properties {}
-           :objectType "NODE"
-           :execute? true}}]
-  {:pre [(string? label)
-         (map? properties)
+  if :objectType is RELATION, replaceLabelmap can only have one string"
+  [& {:keys [labels
+             properties
+             objectType
+             replaceLabelMap
+             execute?]
+      :or {labels []
+           properties {}
+           objectType "NODE"
+           execute? true}}]
+  {:pre [(map? properties)
          (map? replaceLabelMap)
          (every? string? (vals replaceLabelMap))
          (every? string? (keys replaceLabelMap))
          (not (empty? replaceLabelMap))
          (or (= "NODE" objectType)
              (and (= "RELATION" objectType)
+                  (= 1 (count labels))
                   (= 1 (count replaceLabelMap))
-                  (not (nil? (replaceLabelMap label)))
+                  (not (nil? (replaceLabelMap (first labels))))
                   )
              )
          ]
    }
   (let [builtQuery {:query (case objectType
-                             "NODE" (str "MATCH (obj:"label" "(createParameterPropertyString properties)") "
+                             "NODE" (str "MATCH (obj"(createLabelString :labels labels)" "(createParameterPropertyString properties)") "
                                          (clojure.string/join " " (map #(str "REMOVE obj:"(% 0)" "
-                                                                             "SET obj:"(% 1)) replaceLabelMap)
-                                                              )
-                                         )
-                             "RELATION" (str "MATCH (n1)-[rel:"label"]->(n2)"
-                                             " MERGE (n1)-[rel2:"(replaceLabelMap label)"]-(n2)"
+                                                                             "SET obj:"(% 1)) replaceLabelMap))
+                                         (createReturnString ["obj" "UUID" "UUID"]))
+                             "RELATION" (str "MATCH (n1)-[rel"(createLabelString :labels labels)"]->(obj)"
+                                             " MERGE (n1)-[rel2"(createLabelString :labels [(replaceLabelMap (first labels))])"]-(obj)"
                                              " SET rel2=rel"
                                              " WITH rel"
-                                             " DELETE rel")
+                                             " DELETE rel"
+                                             (createReturnString ["obj" "UUID" "UUID"]))
                              )
+                    :doRCS? true
+                    :rcs-vars ["UUID"]
                     :parameters properties}]
     (if execute?
       (gdriver/runQuery builtQuery)
       builtQuery)
     ))
 
+(defn revertNode
+  "Revert Properties/Labels of a node to an older version.
+
+  No mandatory arguments, but when no arguments are given, it will
+  try to fetch all node UUID"
+  [& {:keys [matchLabels
+             newLabels
+             matchProperties
+             newProperties
+             execute?]
+      :or {matchLabels []
+           newLabels []
+           matchProperties {}
+           newProperties {}
+           execute? true}}]
+  {:pre [(coll? matchLabels)
+         (coll? newLabels)
+         (map? matchProperties)
+         (map? newProperties)]}
+  (let [remLabels (clojure.set/difference (into #{} matchLabels)
+                                          (into #{} newLabels))
+        addLabels (clojure.set/difference (into #{} newLabels)
+                                          (into #{} matchLabels))
+        remProperties (clojure.set/difference (into #{} (keys matchProperties))
+                                              (into #{} (keys newProperties)))
+        combinedPropertyMap (combinePropertyMap {"M" matchProperties
+                                                 "E" newProperties})
+        builtQuery {:query (str "MATCH (n"(createLabelString :labels matchLabels)
+                                " "((combinedPropertyMap :propertyStringMap) "M")")"
+                                " "(createRemString :varName "n"
+                                                    :remPropertyList remProperties)
+                                (if (empty? remLabels)
+                                  " "
+                                  (if (empty? remProperties)
+                                    (str " REMOVE n"(createLabelString :labels remLabels))
+                                    (str " ,n"(createLabelString :labels remLabels))))
+                                " "(if (empty? newProperties)
+                                     ""
+                                     (createEditString :varName "n"
+                                                       :editPropertyList (keys (addStringToMapKeys newProperties "E"))
+                                                       :characteristicString "E"))
+                                (if (empty? addLabels)
+                                  " "
+                                  (if (empty? newProperties)
+                                    (str " SET n"(createLabelString :labels addLabels))
+                                    (str " ,n"(createLabelString :labels addLabels))))
+                                " "(createReturnString ["n" "UUID" "UUID"]))
+                    :parameters (combinedPropertyMap :combinedPropertyMap)
+                    :doRCS? true
+                    :rcs-vars ["UUID"]
+                    :labels newLabels}]
+    (if execute?
+      (gdriver/runQuery builtQuery)
+      builtQuery)))
+
+(defn revertRelation
+  "Revert properties/type of a relation
+  Mandatory arguments:
+  :relationshipType
+  "
+  [& {:keys [fromNodeLabels
+             fromNodeParameters
+             toNodeLabels
+             toNodeParameters
+             relationshipType
+             matchRelationshipParameters
+             newRelationshipParameters
+             execute?]
+      :or {fromNodeLabels []
+           fromNodeParameters {}
+           toNodeLabels []
+           toNodeParameters {}
+           matchRelationshipParameters {}
+           newRelationshipParameters {}
+           execute? false}}]
+  {:pre [(string? relationshipType)
+         (coll? fromNodeLabels)
+         (coll? toNodeLabels)
+         (map? fromNodeParameters)
+         (map? toNodeParameters)
+         (map? matchRelationshipParameters)
+         (map? newRelationshipParameters)]}
+  (let [remProperties (clojure.set/difference (into #{} (keys matchRelationshipParameters))
+                                              (into #{} (keys newRelationshipParameters)))
+        combinedPropertyMap (combinePropertyMap {"N1" toNodeParameters
+                                                 "N2" fromNodeParameters
+                                                 "RM" matchRelationshipParameters
+                                                 "RE" newRelationshipParameters})
+        builtQuery {:query (str "MATCH (n1"(createLabelString :labels toNodeLabels)
+                                " "((combinedPropertyMap :propertyStringMap) "N1")")"
+                                "<-[rel"(createLabelString :labels [relationshipType])
+                                " "((combinedPropertyMap :propertyStringMap) "RM")"]"
+                                "-(n2"(createLabelString :labels fromNodeLabels)
+                                " "((combinedPropertyMap :propertyStringMap) "N2")")"
+                                " "(if (empty? remProperties)
+                                     ""
+                                     (createRemString :varName "rel"
+                                                      :remPropertyList remProperties))
+                                " "(createEditString :varName "rel"
+                                                     :editPropertyList (keys (addStringToMapKeys newRelationshipParameters
+                                                                                                 "RE"))
+                                                     :characteristicString "RE")
+                                " "(createReturnString ["n1" "UUID" "UUID"]))
+                    :parameters (combinedPropertyMap :combinedPropertyMap)
+                    :doRCS? true
+                    :rcs-vars ["UUID"]
+                    :labels toNodeLabels}]
+    (if execute?
+      (gdriver/runQuery builtQuery)
+      builtQuery)))
+
 (defn getNodes
-  "Get Node(s) matched by label and propertyMap"
-  [& {:keys [:label
-             :parameters
-             :count?
-             :execute?]
-      :or {:parameters {}
-           :count? false}}]
-  {:pre [(string? label)]}
+  "Get Node(s) matched by label and propertyMap
+  
+  No mandatory arguments"
+  [& {:keys [labels
+             parameters
+             count?
+             execute?]
+      :or {labels []
+           parameters {}
+           count? false}}]
+  {:pre [(map? parameters)]}
   (map #(% (if count?
              "count(node)"
-             "node")) (((gdriver/runQuery {:query (str "MATCH (node:" label " "
+             "node")) (((gdriver/runQuery {:query (str "MATCH (node"(createLabelString :labels labels)" "
                                                        (createParameterPropertyString parameters)
                                                        ") RETURN " (if count?
                                                                      "count(node)"
@@ -749,24 +810,26 @@
   )
 
 (defn getRelations
-  "Get relations matched by inNode/outNode/type and properties"
-  [& {:keys [:fromNodeLabel
-             :fromNodeParameters
-             :relationshipType
-             :relationshipParameters
-             :toNodeLabel
-             :toNodeParameters
-             :count?
-             :execute?
-             :nodeInfo?]
-      :or {:execute? true
-           :toNodeParameters {}
-           :fromNodeParameters {}
-           :relationshipParameters {}
-           :fromNodeLabel ""
-           :toNodeLabel ""
-           :relationshipType ""
-           :nodeInfo? false}}]
+  "Get relations matched by inNode/outNode/type and properties
+
+  No mandatory arguments"
+  [& {:keys [fromNodeLabels
+             fromNodeParameters
+             relationshipType
+             relationshipParameters
+             toNodeLabels
+             toNodeParameters
+             count?
+             execute?
+             nodeInfo?]
+      :or {execute? true
+           toNodeLabels []
+           fromNodeLabels []
+           toNodeParameters {}
+           fromNodeParameters {}
+           relationshipParameters {}
+           relationshipType ""
+           nodeInfo? false}}]
   (let [combinedProperties
         (combinePropertyMap
          {"1" fromNodeParameters
@@ -774,27 +837,15 @@
           "R" relationshipParameters
           }
          )
-        fromNodeLabel
-        (if (= fromNodeLabel "")
-          ""
-          (reduce #(str %1 ":" %2) "" fromNodeLabel)
-          )
-        toNodeLabel
-        (if (= toNodeLabel "")
-          ""
-          (reduce #(str %1 ":" %2) "" toNodeLabel)
-          )
-        relationshipType
-        (if (= relationshipType "")
-          ""
-          (str ":" relationshipType)
-          )
+        fromNodeLabel (createLabelString :labels fromNodeLabels)
+        toNodeLabel (createLabelString :labels toNodeLabels)
+        relationshipTypewb (createLabelString :labels [relationshipType])
         builtQuery
         {:query
          (if nodeInfo?
            (str "MATCH path=(n" fromNodeLabel " "
                 ((combinedProperties :propertyStringMap) "1")
-                ")-[p" relationshipType " "
+                ")-[p" relationshipTypewb " "
                 ((combinedProperties :propertyStringMap) "R")
                 "]->(m" toNodeLabel " "
                 ((combinedProperties :propertyStringMap) "2")
@@ -803,7 +854,7 @@
                               "path"))
            (str "MATCH (n" fromNodeLabel " "
                 ((combinedProperties :propertyStringMap) "1")
-                ")-[p" relationshipType " "
+                ")-[p" relationshipTypewb " "
                 ((combinedProperties :propertyStringMap) "R")
                 "]->(m" toNodeLabel " "
                 ((combinedProperties :propertyStringMap) "2")
@@ -831,91 +882,35 @@
     )
   )
 
-(defn deleteRelations
-  "Get relations matched by inNode/outNode/type and properties"
-  [& {:keys [:fromNodeLabel
-             :fromNodeParameters
-             :relationshipType
-             :relationshipParameters
-             :toNodeLabel
-             :toNodeParameters
-             :execute?]
-      :or {:execute? true
-           :toNodeParameters {}
-           :fromNodeParameters {}
-           :relationshipParameters {}
-           :fromNodeLabel ""
-           :toNodeLabel ""
-           :relationshipType ""}}]
-  (let [combinedProperties
-        (combinePropertyMap
-         {"1" fromNodeParameters
-          "2" toNodeParameters
-          "R" relationshipParameters
-          }
-         )
-        fromNodeLabel
-        (if (= fromNodeLabel "")
-          ""
-          (reduce #(str %1 ":" %2) "" fromNodeLabel)
-          )
-        toNodeLabel
-        (if (= toNodeLabel "")
-          ""
-          (reduce #(str %1 ":" %2) "" toNodeLabel)
-          )
-        relationshipType
-        (if (= relationshipType "")
-          ""
-          (str ":" relationshipType)
-          )
-        builtQuery
-        {:query
-         (str "MATCH (n" fromNodeLabel " "
-              ((combinedProperties :propertyStringMap) "1")
-              ")-[p" relationshipType " "
-              ((combinedProperties :propertyStringMap) "R")
-              "]->(m" toNodeLabel " "
-              ((combinedProperties :propertyStringMap) "2")
-              ") delete p")
-         :parameters
-         (combinedProperties :combinedPropertyMap)
-         }
-        ]
-    (if execute?
-      ((gdriver/runQuery builtQuery) :summary)
-      builtQuery
-      )
-    )
-  )
-
 (defn getNeighborhood
-  "Get the neighborhood of a particular node"
-  [& {:keys [:label
-             :parameters]
-      :or {:parameters {}}
+  "Get the neighborhood of a particular node
+  
+  No mandatory arguments."
+  [& {:keys [labels
+             parameters]
+      :or {parameters {}}
       }
    ]
-  (let [nodeseq (getNodes :label label
+  (let [nodeseq (getNodes :labels labels
                           :parameters parameters)
         ]
     (if (not= (count nodeseq) 1)
       "Error"
-      (let [nodeLabel ((first nodeseq) :labels)
+      (let [nodeLabels ((first nodeseq) :labels)
             nodeParameters ((first nodeseq) :properties)
             ]
-        {:labels nodeLabel
+        {:labels nodeLabels
          :properties nodeParameters
          :outNodes (map #(select-keys % [:labels
                                          :properties
                                          :toNode])
-                        (getRelations :fromNodeLabel nodeLabel
+                        (getRelations :fromNodeLabels nodeLabels
                                       :fromNodeParameters nodeParameters)
                         )
          :inNodes (map #(select-keys % [:labels
                                         :properties
                                         :fromNode])
-                       (getRelations :toNodeLabel nodeLabel
+                       (getRelations :toNodeLabels nodeLabels
                                      :toNodeParameters nodeParameters)
                        )
          }
@@ -949,18 +944,18 @@
 
 (defn manageConstraints
   "Manage unique constraints or existance constraints.
-  :label should be a string.
-  :CD should be either of 'CREATE','DROP'
-  :propertyVec should be a vector of properties(string).
-  :constraintType should be either UNIQUE or NODEEXISTANCE or RELATIONEXISTANCE or NODEKEY.
+  :label should be a string.(Mandatory)
+  :CD should be either of 'CREATE','DROP'(Mandatory)
+  :propertyVec should be a vector of properties(string).(Mandatory)
+  :constraintType should be either UNIQUE or NODEEXISTANCE or RELATIONEXISTANCE or NODEKEY.(Mandatory)
   if :constraintType is NODEKEY, :propertyVec should be a vector of vectors of properties(string).
   :execute? (boolean) whether the constraints are to be created, or just return preparedQueries"
-  [& {:keys [:label
-             :CD
-             :propertyVec
-             :constraintType
-             :execute?]
-      :or {:execute? true}
+  [& {:keys [label
+             CD
+             propertyVec
+             constraintType
+             execute?]
+      :or {execute? true}
       }
    ]
   {:pre [
@@ -981,14 +976,15 @@
            )
          ]
    }
-  (let [queryBuilder (case constraintType
-                       "UNIQUE" #(str "(label:" label
+  (let [bklabel (backtick label)
+        queryBuilder (case constraintType
+                       "UNIQUE" #(str "(label:" bklabel
                                       ") ASSERT label." % " IS UNIQUE")
-                       "NODEEXISTANCE" #(str "(label:" label
+                       "NODEEXISTANCE" #(str "(label:" bklabel
                                              ") ASSERT exists(label." % ")")
-                       "RELATIONEXISTANCE" #(str "()-[label:" label
+                       "RELATIONEXISTANCE" #(str "()-[label:" bklabel
                                                  "]-() ASSERT exists(label." % ")")
-                       "NODEKEY" #(str "(label:" label
+                       "NODEKEY" #(str "(label:" bklabel
                                        ") ASSERT (" (clojure.string/join
                                                      ", "
                                                      (map (fn [property]
@@ -1003,6 +999,10 @@
                             {:query
                              (str CD " CONSTRAINT ON " (queryBuilder %))
                              :parameters {}
+                             :schema-changed? true
+                             :override-nochange (if (= "NODEKEY" constraintType)
+                                                  true;; As neo4j returns containsUpdates false for nodekey constraints
+                                                  false)
                              }
                             ) propertyVec)
         ]
@@ -1015,14 +1015,14 @@
 
 (defn manageUniqueConstraints
   "Create/Drop Unique Constraints on label properties.
-  :label is treated as a Node Label.
-  :CD can be CREATE,DROP.
-  :propertyVec should be a vector of properties"
-  [& {:keys [:label
-             :CD
-             :propertyVec
-             :execute?]
-      :or {:execute? true}
+  :label is treated as a Node Label.(Mandatory)
+  :CD can be CREATE,DROP.(Mandatory)
+  :propertyVec should be a vector of properties(Mandatory)"
+  [& {:keys [label
+             CD
+             propertyVec
+             execute?]
+      :or {execute? true}
       :as keyArgs}
    ]
   (apply manageConstraints
@@ -1037,16 +1037,16 @@
 
 (defn manageExistanceConstraints
   "Create/Drop Existance Constraints on label properties.
-  :label is treated as a Node label or relation label based on value of NR.
-  :CD can be CREATE, DROP.
-  :propertyVec should be a vector of properties.
-  :NR should be either NODE or RELATION"
-  [& {:keys [:label
-             :CD
-             :propertyVec
-             :NR
-             :execute?]
-      :or {:execute? true}
+  :label is treated as a Node label or relation label based on value of NR.(Mandatory)
+  :CD can be CREATE, DROP.(Mandatory)
+  :propertyVec should be a vector of properties.(Mandatory)
+  :NR should be either NODE or RELATION(Mandatory)"
+  [& {:keys [label
+             CD
+             propertyVec
+             NR
+             execute?]
+      :or {execute? true}
       :as keyArgs}]
   {:pre [(contains? #{"CREATE" "DROP"} CD)]
    }
@@ -1063,14 +1063,14 @@
 
 (defn manageNodeKeyConstraints
   "Create/Drop Node Key Constraints on node label properties.
-  :label is treated as node label.
-  :CD can be CREATE, DROP.
-  :propPropVec should be a vector of vectors of properties(string)."
-  [& {:keys [:label
-             :CD
-             :propPropVec
-             :execute?]
-      :or {:execute? true}
+  :label is treated as node label.(Mandatory)
+  :CD can be CREATE, DROP.(Mandatory)
+  :propPropVec should be a vector of vectors of properties(string).(Mandatory)"
+  [& {:keys [label
+             CD
+             propPropVec
+             execute?]
+      :or {execute? true}
       :as keyArgs}]
   ;;For some reason, creating/dropping a nodekey doesn't reflect on summary.
   ;;So don't be surprised if no errors occur or no changes exist in the summary.
@@ -1086,7 +1086,7 @@
 
 (defn createNCConstraints
   "Create Constraints that apply to nodes with label NeoConstraint"
-  [& {:keys [:execute?] :or {:execute? true}}]
+  [& {:keys [execute?] :or {execute? true}}]
   (manageNodeKeyConstraints :label "NeoConstraint"
                             :CD "CREATE"
                             :propPropVec [["constraintType" "constraintTarget"]]
@@ -1095,8 +1095,8 @@
 
 (defn createCATConstraints
   "Create Constraints that apply to relationships with label NeoConstraintAppliesTo"
-  [& {:keys [:execute?]
-      :or {:execute? true}}]
+  [& {:keys [execute?]
+      :or {execute? true}}]
   (manageExistanceConstraints :label "NeoConstraintAppliesTo"
                               :CD "CREATE"
                               :propertyVec ["constraintValue"]
@@ -1106,9 +1106,9 @@
 
 (defn createATConstraints
   "Creates Constraints that apply to nodes with label AttributeType"
-  [& {:keys [:execute?]
+  [& {:keys [execute?]
       :or
-      {:execute? true}}
+      {execute? true}}
    ]
   (manageNodeKeyConstraints :label "AttributeType"
                             :CD "CREATE"
@@ -1118,8 +1118,8 @@
 
 (defn createCFConstraints
   "Creates Constraints that apply to nodes with label CustomFunction"
-  [& {:keys [:execute?]
-      :or {:execute? true}}
+  [& {:keys [execute?]
+      :or {execute? true}}
    ]
   (let [builtQueries (reduceQueryColl
                       [(manageNodeKeyConstraints :label "CustomFunction"
@@ -1143,8 +1143,8 @@
 
 (defn createVRATConstraints
   "Creates Constraints that apply to relations with label ValueRestrictionAppliesTo"
-  [& {:keys [:execute?]
-      :or {:execute? true}}
+  [& {:keys [execute?]
+      :or {execute? true}}
    ]
   (manageExistanceConstraints :label "ValueRestrictionAppliesTo"
                               :CD "CREATE"
@@ -1155,8 +1155,8 @@
 
 (defn createCCATConstraints
   "Creates Constraints that apply to relations with label CustomConstraintAppliesTo"
-  [& {:keys [:execute?]
-      :or {:execute? true}}
+  [& {:keys [execute?]
+      :or {execute? true}}
    ]
   (manageExistanceConstraints :label "CustomConstraintAppliesTo"
                               :CD "CREATE"
@@ -1167,8 +1167,8 @@
 
 (defn createClassConstraints
   "Create Constraints that apply to nodes with label Class"
-  [& {:keys [:execute?]
-      :or {:execute? true}}
+  [& {:keys [execute?]
+      :or {execute? true}}
    ]
   (let [builtQueries (reduceQueryColl
                       [(manageExistanceConstraints :label "Class"
@@ -1192,13 +1192,13 @@
 
 (defn createNeoConstraint
   "Creates a NeoConstraint Node that describes a supported neo4j constraint.
-  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.
-  :constraintTarget should be either of NODE,RELATION.
+  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.(Mandatory)
+  :constraintTarget should be either of NODE,RELATION.(Mandatory)
   If :constraintTarget is RELATION, then constraintType can only be EXISTANCE"
-  [& {:keys [:constraintType
-             :constraintTarget
-             :execute?]
-      :or {:execute? true}
+  [& {:keys [constraintType
+             constraintTarget
+             execute?]
+      :or {execute? true}
       :as keyArgs}
    ]
   {:pre [
@@ -1212,7 +1212,7 @@
           )
          ]
    }
-  (createNewNode :label "NeoConstraint"
+  (createNewNode :labels ["NeoConstraint"]
                  :parameters {"constraintType" constraintType
                               "constraintTarget" constraintTarget}
                  :execute? execute?
@@ -1221,8 +1221,8 @@
 
 (defn createAllNeoConstraints
   "Creates all NeoConstraints"
-  [& {:keys [:execute?]
-      :or {:execute? true}}
+  [& {:keys [execute?]
+      :or {execute? true}}
    ]
   (let [builtQueries
         (map #(createNeoConstraint
@@ -1269,35 +1269,40 @@
 
 (defn createCustomFunction
   "Creates a customFunction.
-  :fnName should be string.
-  :fnString should be string that represents CustomFunction template."
-  [& {:keys [:fnName
-             :fnString
-             :execute?]
-      :or {:execute? true}}
+  :fnName should be string.(Mandatory)
+  :fnString should be string that represents CustomFunction template.(Mandatory)"
+  [& {:keys [fnName
+             fnString
+             execute?]
+      :or {execute? true}}
    ]
   {:pre [(gcust/stringIsCustFunction? fnString)
          (string? fnName)]}
-  (createNewNode :label "CustomFunction"
+  (createNewNode :labels ["CustomFunction"]
                  :parameters {	"fnName" fnName
                               "fnString" fnString
                               "fnIntegrity" (gcust/hashCustomFunction fnString)}
                  :execute? execute?))
 
 (defn getCustomFunctions
-  "Get CustomFunctions"
-  [& {:keys [:count?]
-      :or {:count? false}}]
-  (getNodes :label "CustomFunction"
+  "Get CustomFunctions
+
+  No mandatory arguments"
+  [& {:keys [count?]
+      :or {count? false}}]
+  (getNodes :labels ["CustomFunction"]
             :parameters {}
             :count? count?))
 
 (defn editCustomFunction
-  "Edit a CustomFunction's fnName and/or fnString"
-  [& {:keys [:fnName
-             :changeMap
-             :execute?]
-      :or {:execute? true}}]
+  "Edit a CustomFunction's fnName and/or fnString
+  :fnName should be the desired fnName(Mandatory)
+  :changeMap should be a map with keys 'fnName', 'fnString'
+  with the desired values(Mandatory)"
+  [& {:keys [fnName
+             changeMap
+             execute?]
+      :or {execute? true}}]
   {:pre [(string? fnName)
          (map? changeMap)
          (not (empty? changeMap))
@@ -1315,7 +1320,7 @@
                                       {"fnIntegrity" (gcust/hashCustomFunction (changeMap "fnString"))}
                                       {})
                           )]
-    (editNodeProperties :label "CustomFunction"
+    (editNodeProperties :labels ["CustomFunction"]
                         :parameters {"fnName" fnName}
                         :changeMap mChangeMap
                         :execute? execute?)
@@ -1325,9 +1330,11 @@
 (defn reHashCustomFunctions
   "Re-Hash all CustomFunctions.
   Could take a long time depending on size of database.
-  Use only when customPassword is changed"
-  [& {:keys [:execute?]
-      :or {:execute? true}}]
+  Use only when customPassword is changed
+  
+  No mandatory arguments"
+  [& {:keys [execute?]
+      :or {execute? true}}]
   (let [builtQueries (map (fn [customFunction]
                             (let [cf (into {} (customFunction :properties))]
                               (editCustomFunction :fnName (cf "fnName")
@@ -1345,96 +1352,105 @@
   )
 
 (defn getClassAttributeTypes
-  "Get all AttributeTypes 'attributed' to a class"
-  [& {:keys [:className
-             :count?]
-      :or {:count? false}}]
+  "Get all AttributeTypes 'attributed' to a class
+
+  :className should be a string (Mandatory)"
+  [& {:keys [className
+             count?]
+      :or {count? false}}]
   {:pre [(string? className)]}
   (map #((% (if count?
               "count(att)"
               "att")) :properties) (((gdriver/runQuery
-                                      {:query (str "MATCH (class:Class {className:{className}})-[rel:HasAttributeType]->(att:AttributeType) RETURN "(if count?
-                                                                                                                                                      "count(att)"
-                                                                                                                                                      "att"))
+                                      {:query (str "MATCH (class:`Class` {className:{className}})-[rel:`HasAttributeType`]->(att:`AttributeType`) RETURN "(if count?
+                                                                                                                                                            "count(att)"
+                                                                                                                                                            "att"))
                                        :parameters {"className" className}
                                        }
                                       ) :results) 0))
   )
 
 (defn getClassApplicableSourceNT
-  "Get all AttributeTypes 'attributed' to a class"
-  [& {:keys [:className
-             :count?]
-      :or {:count? false}}]
+  "Get all Source NodeTypes 'attributed' to a class
+  
+  :className should be the name of the class(Mandatory)"
+  [& {:keys [className
+             count?]
+      :or {count? false}}]
   {:pre [(string? className)]}
   (map #((% (if count?
               "count(rl)"
               "rl")) :properties) (((gdriver/runQuery
-                                     {:query (str "MATCH (class:Class {className:{className}})<-[rel:ApplicableSourceNT]-(rl:Class) RETURN "(if count?
-                                                                                                                                              "count(rl)"
-                                                                                                                                              "rl"))
+                                     {:query (str "MATCH (class:`Class` {className:{className}})<-[rel:`ApplicableSourceNT`]-(rl:`Class`) RETURN "(if count?
+                                                                                                                                                    "count(rl)"
+                                                                                                                                                    "rl"))
                                       :parameters {"className" className}
                                       }
                                      ) :results) 0))
   )
 
 (defn getClassApplicableTargetNT
-  "Get all AttributeTypes 'attributed' to a class"
-  [& {:keys [:className
-             :count?]
-      :or {:count? false}}]
+  "Get all Target NodeTypes 'attributed' to a class
+
+  :className should be string(Mandatory)"
+  [& {:keys [className
+             count?]
+      :or {count? false}}]
   {:pre [(string? className)]}
   (map #((% (if count?
               "count(rl)"
               "rl")) :properties) (((gdriver/runQuery
-                                     {:query (str "MATCH (class:Class {className:{className}})<-[rel:ApplicableTargetNT]-(rl:Class) RETURN "(if count?
-                                                                                                                                              "count(rl)"
-                                                                                                                                              "rl"))
+                                     {:query (str "MATCH (class:`Class` {className:{className}})<-[rel:`ApplicableTargetNT`]-(rl:`Class`) RETURN "(if count?
+                                                                                                                                                    "count(rl)"
+                                                                                                                                                    "rl"))
                                       :parameters {"className" className}
                                       }
                                      ) :results) 0))
   )
 
 (defn getClassNeoConstraints
-  "Get all NeoConstraints attributed to a class"
-  [& {:keys [:className
-             :count?]
-      :or {:count? false}}]
+  "Get all NeoConstraints attributed to a class
+  :className should be string(Mandatory)"
+  [& {:keys [className
+             count?]
+      :or {count? false}}]
   {:pre [(string? className)]}
   (gdriver/runQuery
-   {:query (str "MATCH (class:Class {className:{className}})<-[ncat:NeoConstraintAppliesTo]-(neo:NeoConstraint) RETURN " (if count?
-                                                                                                                           "count(ncat)"
-                                                                                                                           "ncat,neo"))
+   {:query (str "MATCH (class:`Class` {className:{className}})<-[ncat:`NeoConstraintAppliesTo`]-(neo:`NeoConstraint`) RETURN " (if count?
+                                                                                                                                 "count(ncat)"
+                                                                                                                                 "ncat,neo"))
     :parameters {"className" className}
     }
    )
   )
 
 (defn getClassCustomConstraints
-  "Get all CustomConstraints applicable to a class"
-  [& {:keys [:className
-             :count?]
-      :or {:count? false}}]
+  "Get all CustomConstraints applicable to a class
+  :className should be string(Mandatory)"
+  [& {:keys [className
+             count?]
+      :or {count? false}}]
   {:pre [(string? className)]}
   (gdriver/runQuery
-   {:query (str "MATCH (class:Class {className:{className}})<-[ccat:CustomConstraintAppliesTo]-(cf:CustomFunction) RETURN "(if count?
-                                                                                                                             "count(ccat)"
-                                                                                                                             "ccat,cf"))
+   {:query (str "MATCH (class:`Class` {className:{className}})<-[ccat:`CustomConstraintAppliesTo`]-(cf:`CustomFunction`) RETURN "(if count?
+                                                                                                                                   "count(ccat)"
+                                                                                                                                   "ccat,cf"))
     :parameters {"className" className}
     }
    )
   )
 
 (defn getATValueRestrictions
-  "Get all ValueRestriction applicable to an AttributeType with _name atname"
-  [& {:keys [:atName
-             :count?]
-      :or {:count? false}}]
+  "Get all ValueRestrictions applicable to an AttributeType with _name atname
+  :atName should be string(Mandatory)"
+  [& {:keys [atName
+             count?]
+      :or {count? false}}]
   {:pre [(string? atName)]}
   (gdriver/runQuery
-   {:query (str "MATCH (at:AttributeType {_name:{atname}})<-[vr:ValueRestrictionAppliesTo]-(cf:CustomFunction) RETURN cf,vr"(if count?
-                                                                                                                              "count(vr)"
-                                                                                                                              "cf,vr"))
+   {:query (str "MATCH (at:`AttributeType` {_name:{atname}})<-[vr:`ValueRestrictionAppliesTo`]-(cf:`CustomFunction`) RETURN "(if count?
+                                                                                                                               "count(vr)"
+                                                                                                                               "cf,vr"))
     :parameters {"atname" atName}
     }
    )
@@ -1442,16 +1458,16 @@
 
 (defn exemptClassNeoConstraint
   "Exempt a NeoConstraint that currently applies to a class.
-  :className string
-  :constraintType UNIQUE,NODEKEY,EXISTANCE
-  :constraintTarget NODE,RELATION
-  :constraintValue depends upon :_constraintTarget and :_constraintType"
-  [& {:keys [:className
-             :constraintType
-             :constraintTarget
-             :constraintValue
-             :execute?]
-      :or {:execute? true}
+  :className string(Mandatory)
+  :constraintType UNIQUE,NODEKEY,EXISTANCE(Mandatory)
+  :constraintTarget NODE,RELATION(Mandatory)
+  :constraintValue depends upon :_constraintTarget and :_constraintType(Mandatory)"
+  [& {:keys [className
+             constraintType
+             constraintTarget
+             constraintValue
+             execute?]
+      :or {execute? true}
       :as keyArgs}
    ]
   {:pre [
@@ -1475,17 +1491,17 @@
 
 (defn applyClassNeoConstraint
   "Apply a NeoConstraint that apply to a class.
-  :className string
-  :constraintType UNIQUE,NODEKEY,EXISTANCE
-  :constraintTarget NODE,RELATION
-  :constraintValue depends upon :_constraintTarget and :_constraintType
+  :className string(Mandatory)
+  :constraintType UNIQUE,NODEKEY,EXISTANCE(Mandatory)
+  :constraintTarget NODE,RELATION(Mandatory)
+  :constraintValue depends upon :_constraintTarget and :_constraintType(Mandatory)
   :execute?"
-  [& {:keys [:className
-             :constraintType
-             :constraintTarget
-             :constraintValue
-             :execute?]
-      :or {:execute? true}
+  [& {:keys [className
+             constraintType
+             constraintTarget
+             constraintValue
+             execute?]
+      :or {execute? true}
       :as keyArgs}
    ]
   {:pre [
@@ -1508,10 +1524,11 @@
   )
 
 (defn exemptClassNeoConstraints
-  "Exempt all NeoConstraints for a class"
-  [& {:keys [:className
-             :execute?]
-      :or {:execute? true}
+  "Exempt all NeoConstraints for a class
+  :className string(Mandatory)"
+  [& {:keys [className
+             execute?]
+      :or {execute? true}
       :as keyArgs}]
   (let [builtQueries 
         (reduceQueryColl
@@ -1545,10 +1562,11 @@
   )
 
 (defn applyClassNeoConstraints
-  "Apply all NeoConstraints for a class"
-  [& {:keys [:className
-             :execute?]
-      :or {:execute? true}
+  "Apply all NeoConstraints for a class
+  :className string (Mandatory)"
+  [& {:keys [className
+             execute?]
+      :or {execute? true}
       :as keyArgs}]
   (let [builtQueries 
         (reduceQueryColl
@@ -1583,25 +1601,25 @@
 
 (defn remRelApplicableType
   "Remove an applicable Source/Target type to a Relation Class, by removing a relation: ApplicableSourceNT/ApplicableTargetNT.
-  :className should be className of relation class.
-  :applicationType should be either SOURCE or TARGET as string.
-  :applicableClassName should be a className of the source or target Node Class"
-  [& {:keys [:className
-             :applicationType
-             :applicableClassName
-             :execute?]
-      :or {:execute? true}}
+  :className should be className of relation class.(Mandatory)
+  :applicationType should be either SOURCE or TARGET as string.(Mandatory)
+  :applicableClassName should be a className of the source or target Node Class(Mandatory)"
+  [& {:keys [className
+             applicationType
+             applicableClassName
+             execute?]
+      :or {execute? true}}
    ]
   {:pre [(string? className)
          (contains? #{"Source" "Target"} applicationType)
          (string? applicableClassName)
-         (= 1 (count (getNodes :label "Class"
+         (= 1 (count (getNodes :labels ["Class"]
                                :parameters {"className" className
                                             "classType" "RELATION"}
                                )
                      )
             )
-         (= 1 (count (getNodes :label "Class"
+         (= 1 (count (getNodes :labels ["Class"]
                                :parameters {"className" applicableClassName
                                             "classType" "NODE"}
                                )
@@ -1609,12 +1627,12 @@
             )
          ]
    }
-  (let [builtQuery (deleteRelation :fromNodeLabel "Class"
+  (let [builtQuery (deleteRelation :fromNodeLabels ["Class"]
                                    :fromNodeParameters {"className" className
                                                         "classType" "RELATION"}
                                    :relationshipType (str "Applicable"applicationType"NT")
                                    :relationshipParameters {}
-                                   :toNodeLabel "Class"
+                                   :toNodeLabels ["Class"]
                                    :toNodeParameters {"className" applicableClassName
                                                       "classType" "NODE"}
                                    :execute? false)
@@ -1628,26 +1646,25 @@
 
 (defn addRelApplicableType
   "Add an applicable Source/Target type to a Relation Class, by creating a relation: ApplicableSourceNT/ApplicableTargetNT.
-  :className should be className of relation class.
-  :applicationType should be either SOURCE or TARGET as string.
-  :applicableClassName should be a className of the source or target Node Class"
-  [& {:keys [:className
-             :applicationType
-             :applicableClassName
-             :execute?]
-      :or {:execute? true}}
+  :className should be className of relation class.(Mandatory)
+  :applicationType should be either SOURCE or TARGET as string.(Mandatory)
+  :applicableClassName should be a className of the source or target Node Class(Mandatory)"
+  [& {:keys [className
+             applicationType
+             applicableClassName
+             execute?]
+      :or {execute? true}}
    ]
   {:pre [(string? className)
          (contains? #{"Source" "Target"} applicationType)
          (string? applicableClassName)
-         (= 1 (count (getNodes :label "Class"
+         (= 1 (count (getNodes :labels ["Class"]
                                :parameters {"className" className
                                             "classType" "RELATION"}
                                )
                      )
             )
-         (= 1 (count (getNodes :label
-                               "Class"
+         (= 1 (count (getNodes :labels ["Class"]
                                :parameters {"className" applicableClassName
                                             "classType" "NODE"}
                                )
@@ -1655,12 +1672,12 @@
             )
          ]
    }
-  (let [builtQuery (createRelation :fromNodeLabel "Class"
+  (let [builtQuery (createRelation :fromNodeLabels ["Class"]
                                    :fromNodeParameters {"className" className
                                                         "classType" "RELATION"}
                                    :relationshipType (str "Applicable"applicationType"NT")
                                    :relationshipParameters {}
-                                   :toNodeLabel "Class"
+                                   :toNodeLabels ["Class"]
                                    :toNodeParameters {"className" applicableClassName
                                                       "classType" "NODE"}
                                    :execute? false
@@ -1675,26 +1692,26 @@
 
 (defn getRelApplicableNTs
   "Get a relation class' ApplicableNTs.
-  :className should be of a Class of classType 'RELATION'."
-  [& {:keys [:className
-             :count?]
-      :or {:count? false}}]
+  :className should be of a Class of classType 'RELATION'.(Mandatory)"
+  [& {:keys [className
+             count?]
+      :or {count? false}}]
   {:pre [(string? className)]}
   (let [combinedPropertyMap (combinePropertyMap {"RT" {"className" className
                                                        "classType" "RELATION"}
                                                  "NT" {"classType" "NODE"}}
                                                 )
-        builtQuery1 {:query (str "MATCH (rt:Class "
+        builtQuery1 {:query (str "MATCH (rt:`Class` "
                                  ((combinedPropertyMap :propertyStringMap) "RT")
-                                 ")-[:ApplicableSourceNT]->(nt:Class "
+                                 ")-[:`ApplicableSourceNT`]->(nt:`Class` "
                                  ((combinedPropertyMap :propertyStringMap) "NT")
                                  ") RETURN "(if count?
                                               "count(nt)"
                                               "nt"))
                      :parameters (combinedPropertyMap :combinedPropertyMap)}
-        builtQuery2 {:query (str "MATCH (rt:Class "
+        builtQuery2 {:query (str "MATCH (rt:`Class` "
                                  ((combinedPropertyMap :propertyStringMap) "RT")
-                                 ")-[:ApplicableTargetNT]->(nt:Class "
+                                 ")-[:`ApplicableTargetNT`]->(nt:`Class` "
                                  ((combinedPropertyMap :propertyStringMap) "NT")
                                  ") RETURN "(if count?
                                               "count(nt)"
@@ -1707,27 +1724,27 @@
 
 (defn addClassAT
   "Adds a relation HasAttributeType from Class to AttributeType.
-  :_atname: _name of AttributeType.
-  :_atdatatype: _datatype of AttributeType.
-  :className: className of Class"
-  [& {:keys [:_atname
-             :className
-             :execute?]
-      :or {:execute? true}}
+  :_atname: _name of AttributeType.(Mandatory)
+  :_atdatatype: _datatype of AttributeType.(Mandatory)
+  :className: className of Class(Mandatory)"
+  [& {:keys [_atname
+             className
+             execute?]
+      :or {execute? true}}
    ]
-  {:pre [
-         (string? className)
-         (= 1 (count (getNodes :label "AttributeType"
+  
+  {:pre [(string? className)
+         (= 1 (count (getNodes :labels ["AttributeType"]
                                :parameters {"_name" _atname}
                                ))
             )
          ]
    }
-  (createRelation :fromNodeLabel "Class"
+  (createRelation :fromNodeLabels ["Class"]
                   :fromNodeParameters {"className" className}
                   :relationshipType "HasAttributeType"
                   :relationshipParameters {}
-                  :toNodeLabel "AttributeType"
+                  :toNodeLabels ["AttributeType"]
                   :toNodeParameters {"_name" _atname}
                   :unique? true
                   :execute? execute?)
@@ -1735,27 +1752,27 @@
 
 (defn remClassAT
   "Removes relation HasAttributeType from Class to AttributeType.
-  :_atname: _name of AttributeType.
-  :_atdatatype: _datatype of AttributeType.
-  :className: className of Class"
-  [& {:keys [:_atname
-             :className
-             :execute?]
-      :or {:execute? true}}
+  :_atname: _name of AttributeType.(Mandatory)
+  :_atdatatype: _datatype of AttributeType.(Mandatory)
+  :className: className of Class(Mandatory)"
+  [& {:keys [_atname
+             className
+             execute?]
+      :or {execute? true}}
    ]
   {:pre [
          (string? className)
-         (= 1 (count (getNodes :label "AttributeType"
+         (= 1 (count (getNodes :labels ["AttributeType"]
                                :parameters {"_name" _atname}
                                ))
             )
          ]
    }
-  (deleteRelation :fromNodeLabel "Class"
+  (deleteRelation :fromNodeLabels ["Class"]
                   :fromNodeParameters {"className" className}
                   :relationshipType "HasAttributeType"
                   :relationshipParameters {}
-                  :toNodeLabel "AttributeType"
+                  :toNodeLabels ["AttributeType"]
                   :toNodeParameters {"_name" _atname}
                   :execute? execute?)
   )
@@ -1763,22 +1780,22 @@
 (defn addATVR
   "Adds a ValueRestriction to an AttributeType.
   Creates a relation ValueRestrictionAppliesTo from CustomFunction to AttributeType.
-  :_atname should be _name of an AttributeType.
-  :fnName should be fnName of a CustomFunction.
-  :constraintValue should be value to be passed as CustomFunction's second argument"
-  [& {:keys [:_atname
-             :fnName
-             :constraintValue
-             :execute?]
-      :or {:execute? true}}
+  :_atname should be _name of an AttributeType.(Mandatory)
+  :fnName should be fnName of a CustomFunction.(Mandatory)
+  :constraintValue should be value to be passed as CustomFunction's second argument(Mandatory)"
+  [& {:keys [_atname
+             fnName
+             constraintValue
+             execute?]
+      :or {execute? true}}
    ]
   {:pre [(string? _atname)
          (string? fnName)]}
-  (createRelation :fromNodeLabel "CustomFunction"
+  (createRelation :fromNodeLabels ["CustomFunction"]
                   :fromNodeParameters {"fnName" fnName}
                   :relationshipType "ValueRestrictionAppliesTo"
                   :relationshipParameters {"constraintValue" constraintValue}
-                  :toNodeLabel "AttributeType"
+                  :toNodeLabels ["AttributeType"]
                   :toNodeParameters {"_name" _atname}
                   :unique? true
                   :execute? execute?)
@@ -1787,22 +1804,22 @@
 (defn remATVR
   "Removes a ValueRestriction to an AttributeType.
   Creates a relation ValueRestrictionAppliesTo from CustomFunction to AttributeType.
-  :_atname should be _name of an AttributeType.
-  :fnName should be fnName of a CustomFunction.
-  :constraintValue should be value to be passed as CustomFunction's second argument"
-  [& {:keys [:_atname
-             :fnName
-             :constraintValue
-             :execute?]
-      :or {:execute? true}}
+  :_atname should be _name of an AttributeType.(Mandatory)
+  :fnName should be fnName of a CustomFunction.(Mandatory)
+  :constraintValue should be value to be passed as CustomFunction's second argument(Mandatory)"
+  [& {:keys [_atname
+             fnName
+             constraintValue
+             execute?]
+      :or {execute? true}}
    ]
   {:pre [(string? _atname)
          (string? fnName)]}
-  (deleteRelation :fromNodeLabel "CustomFunction"
+  (deleteRelation :fromNodeLabels ["CustomFunction"]
                   :fromNodeParameters {"fnName" fnName}
                   :relationshipType "ValueRestrictionAppliesTo"
                   :relationshipParameters {"constraintValue" constraintValue}
-                  :toNodeLabel "AttributeType"
+                  :toNodeLabels ["AttributeType"]
                   :toNodeParameters {"_name" _atname}
                   :execute? execute?)
   )
@@ -1810,24 +1827,24 @@
 (defn editATVR
   "Edits a ValueRestriction to an AttributeType.
   Creates a relation ValueRestrictionAppliesTo from CustomFunction to AttributeType.
-  :_atname should be _name of an AttributeType.
-  :fnName should be fnName of a CustomFunction.
-  :constraintValue should be value to be passed as CustomFunction's second argument of existing ValueRestriction
-  :newConstraintValue"
-  [& {:keys [:_atname
-             :fnName
-             :constraintValue
-             :newConstraintValue
-             :execute?]
-      :or {:execute? true}}
+  :_atname should be _name of an AttributeType.(Mandatory)
+  :fnName should be fnName of a CustomFunction.(Mandatory)
+  :constraintValue should be value to be passed as CustomFunction's second argument of existing ValueRestriction(Mandatory)
+  :newConstraintValue(Mandatory)"
+  [& {:keys [_atname
+             fnName
+             constraintValue
+             newConstraintValue
+             execute?]
+      :or {execute? true}}
    ]
   {:pre [(string? _atname)
          (string? fnName)]}
-  (editRelation :fromNodeLabel "CustomFunction"
+  (editRelation :fromNodeLabels ["CustomFunction"]
                 :fromNodeParameters {"fnName" fnName}
                 :relationshipType "ValueRestrictionAppliesTo"
                 :relationshipParameters {"constraintValue" constraintValue}
-                :toNodeLabel "AttributeType"
+                :toNodeLabels ["AttributeType"]
                 :toNodeParameters {"_name" _atname}
                 :newRelationshipParameters {"constraintValue" newConstraintValue}
                 :execute? execute?)
@@ -1835,21 +1852,21 @@
 
 (defn editClassNC
   "Edits relation NeoConstraintAppliesTo from a NeoConstraint to a Class.
-  :className should be a string.
-  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY
-  :constraintTarget should be either of NODE,RELATION.
-  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY.
-  :newConstraintValue"
-  [& {:keys [:constraintType
-             :constraintTarget
-             :constraintValue
-             :newConstraintValue
-             :className
-             :execute?]
-      :or {:execute? true}}
+  :className should be a string.(Mandatory)
+  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY(Mandatory)
+  :constraintTarget should be either of NODE,RELATION.(Mandatory)
+  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY.(Mandatory)
+  :newConstraintValue(Mandatory)"
+  [& {:keys [constraintType
+             constraintTarget
+             constraintValue
+             newConstraintValue
+             className
+             execute?]
+      :or {execute? true}}
    ]
   {:pre [(string? className)
-         (= 1 (count (getNodes :label "Class"
+         (= 1 (count (getNodes :labels ["Class"]
                                :parameters {"className" className
                                             "classType" constraintTarget}
                                )
@@ -1859,12 +1876,12 @@
              (and (= constraintType "NODEKEY") (coll? newConstraintValue) (every? string? newConstraintValue)))
          ]
    }
-  (let [builtQueries [[(editRelation :fromNodeLabel "NeoConstraint"
+  (let [builtQueries [[(editRelation :fromNodeLabels ["NeoConstraint"]
                                      :fromNodeParameters {"constraintType" constraintType
                                                           "constraintTarget" constraintTarget}
                                      :relationshipType "NeoConstraintAppliesTo"
                                      :relationshipParameters {"constraintValue" constraintValue}
-                                     :toNodeLabel "Class"
+                                     :toNodeLabels ["Class"]
                                      :toNodeParameters {"className" className
                                                         "classType" constraintTarget}
                                      :newRelationshipParameters {"constraintValue" newConstraintValue}
@@ -1892,12 +1909,13 @@
   )
 
 (defn getNeoConstraintsWithAT
-  "Get NeoConstraint that are applied with a particular AttributeType"
-  [& {:keys [:atName
-             :count?]
-      :or {:count? false}}]
+  "Get NeoConstraint that are applied with a particular AttributeType
+  :atName string (Mandatory)"
+  [& {:keys [atName
+             count?]
+      :or {count? false}}]
   {:pre [(string? atName)]}
-  (apply concat ((gdriver/runQuery {:query (str "MATCH (neo:NeoConstraint {constraintType:\"NODEKEY\"})-[rel:NeoConstraintAppliesTo]->(cl:Class)"
+  (apply concat ((gdriver/runQuery {:query (str "MATCH (neo:`NeoConstraint` {constraintType:\"NODEKEY\"})-[rel:`NeoConstraintAppliesTo`]->(cl:`Class`)"
                                                 " WHERE {ATT} IN rel.constraintValue"
                                                 " RETURN "
                                                 (if count?
@@ -1905,7 +1923,7 @@
                                                   "cl.className,neo.constraintType,neo.constraintTarget,rel.constraintValue")
                                                 )
                                     :parameters {"ATT" atName}}
-                                   {:query (str "MATCH (neo:NeoConstraint)-[rel:NeoConstraintAppliesTo]->(cl:Class)"
+                                   {:query (str "MATCH (neo:`NeoConstraint`)-[rel:`NeoConstraintAppliesTo`]->(cl:`Class`)"
                                                 " WHERE {ATT} IN rel.constraintValue and"
                                                 " neo.constraintType IN [\"UNIQUE\",\"EXISTANCE\"]"
                                                 " RETURN "
@@ -1916,38 +1934,44 @@
 
 (defn createDelATNC
   "Creates a query to remove an AttributeType in all relations with label NeoConstraintAppliesTo.
-  :atName should be a string, _name of an AttributeType."
-  [& {:keys [:atName]}
+  :atName should be a string, _name of an AttributeType.(Mandatory)"
+  [& {:keys [atName]}
    ]
   {:pre [string? atName]}
   (let [propertyMap {"ATT" atName}]
-    [{:query (str "MATCH (neo1:NeoConstraint {constraintType:\"NODEKEY\"})-[rel1:NeoConstraintAppliesTo]->(cl1:Class)"
+    [{:query (str "MATCH (neo1:`NeoConstraint` {constraintType:\"NODEKEY\"})-[rel1:`NeoConstraintAppliesTo`]->(cl1:`Class`)"
                   " "(createPropListEditString :varName "rel1"
                                                :propName "constraintValue"
                                                :editType "DELETE"
                                                :editVal "ATT"
                                                :withWhere? false)
-                  " DELETE rel1")
+                  " DELETE rel1"
+                  (createReturnString ["cl1" "UUID" "UUID"]))
+      :doRCS? true
+      :rcs-vars ["UUID"]
       :parameters propertyMap}
      {:query (str "MATCH"
-                  " (neo2:NeoConstraint)-[rel2:NeoConstraintAppliesTo]->(cl2:Class)"
+                  " (neo2:`NeoConstraint`)-[rel2:`NeoConstraintAppliesTo`]->(cl2:`Class`)"
                   " WHERE neo2.constraintType IN [\"UNIQUE\",\"EXISTANCE\"]"
                   " AND {ATT} IN rel2.constraintValue"
-                  " DELETE rel2")
+                  " DELETE rel2"
+                  (createReturnString ["cl2" "UUID" "UUID"]))
+      :doRCS? true
+      :rcs-vars ["UUID"]
       :parameters propertyMap}])
   )
 
 (defn createReplaceATNC
   "Creates a query to replace an AttributeType in all relations with label NeoConstraintAppliesTo.
-  :atName should be a string, _name of an AttributeType.
-  :renameName should be a string, replacement _name"
-  [& {:keys [:atName
-             :renameName]}]
+  :atName should be a string, _name of an AttributeType.(Mandatory)
+  :renameName should be a string, replacement _name(Mandatory)"
+  [& {:keys [atName
+             renameName]}]
   {:pre [(string? atName)
          (string? renameName)]}
   (let [propertyMap {"ATT" atName "att" renameName}]
-    {:query (str "MATCH (neo1:NeoConstraint {constraintType:\"NODEKEY\"})-[rel1:NeoConstraintAppliesTo]->(cl1:Class),"
-                 " (neo2:NeoConstraint)-[rel2:NeoConstraintAppliesTo]->(cl2:Class)"
+    {:query (str "MATCH (neo1:`NeoConstraint` {constraintType:\"NODEKEY\"})-[rel1:`NeoConstraintAppliesTo`]->(cl1:`Class`),"
+                 " (neo2:`NeoConstraint`)-[rel2:`NeoConstraintAppliesTo`]->(cl2:`Class`)"
                  " WHERE neo2.constraintType IN [\"UNIQUE\",\"EXISTANCE\"]"
                  " AND {ATT} IN rel1.constraintValue"
                  " AND {ATT} IN rel2.constraintValue"
@@ -1958,25 +1982,27 @@
                                               :replaceVal "att"
                                               :withWhere? false)","
                  " rel2.constraintValue={att}"
-                 " RETURN rel1,rel2")
+                 (createReturnString ["cl1" "UUID" "UUID1"] ["cl2" "UUID" "UUID2"]))
+     :doRCS? true
+     :rcs-vars ["UUID1" "UUID2"]
      :parameters propertyMap})
   )
 
 (defn remClassNC
   "Removes relation NeoConstraintAppliesTo from a NeoConstraint to a Class.
-  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.
-  :constraintTarget should be either of NODE,RELATION.
-  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY"
-  [& {:keys [:constraintType
-             :constraintTarget
-             :constraintValue
-             :className
-             :execute?]
-      :or {:execute? true}}
+  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.(Mandatory)
+  :constraintTarget should be either of NODE,RELATION.(Mandatory)
+  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY(Mandatory)"
+  [& {:keys [constraintType
+             constraintTarget
+             constraintValue
+             className
+             execute?]
+      :or {execute? true}}
    ]
   {:pre [
          (string? className)
-         (= 1 (count (getNodes :label "Class"
+         (= 1 (count (getNodes :labels ["Class"]
                                :parameters {"className" className
                                             "classType" constraintTarget}
                                )
@@ -1984,12 +2010,12 @@
             )
          ]
    }
-  (let [builtQueries [[(deleteRelation :fromNodeLabel "NeoConstraint"
+  (let [builtQueries [[(deleteRelation :fromNodeLabels ["NeoConstraint"]
                                        :fromNodeParameters {"constraintType" constraintType
                                                             "constraintTarget" constraintTarget}
                                        :relationshipType "NeoConstraintAppliesTo"
                                        :relationshipParameters {"constraintValue" constraintValue}
-                                       :toNodeLabel "Class"
+                                       :toNodeLabels ["Class"]
                                        :toNodeParameters {"className" className}
                                        :execute? false)]
                       (exemptClassNeoConstraint :className className
@@ -2008,18 +2034,18 @@
 
 (defn addClassNC
   "Adds a relation NeoConstraintAppliesTo from NeoConstraint to Class.
-  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.
-  :constraintTarget should be either of NODE,RELATION.
-  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY"
-  [& {:keys [:constraintType
-             :constraintTarget
-             :constraintValue
-             :className
-             :execute?]
-      :or {:execute? true}}
+  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.(Mandatory)
+  :constraintTarget should be either of NODE,RELATION.(Mandatory)
+  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY(Mandatory)"
+  [& {:keys [constraintType
+             constraintTarget
+             constraintValue
+             className
+             execute?]
+      :or {execute? true}}
    ]
   {:pre [(string? className)
-         (= 1 (count (getNodes :label "Class"
+         (= 1 (count (getNodes :labels ["Class"]
                                :parameters {"className" className
                                             "classType" constraintTarget}
                                )
@@ -2030,12 +2056,12 @@
          ]
    }
   (let 	[createRelationQuery
-         (createRelation :fromNodeLabel "NeoConstraint"
+         (createRelation :fromNodeLabels ["NeoConstraint"]
                          :fromNodeParameters {"constraintType" constraintType
                                               "constraintTarget" constraintTarget}
                          :relationshipType "NeoConstraintAppliesTo"
                          :relationshipParameters {"constraintValue" constraintValue}
-                         :toNodeLabel "Class"
+                         :toNodeLabels ["Class"]
                          :toNodeParameters {"className" className}
                          :execute? false)
          applyClassNeoConstraintQuery (applyClassNeoConstraint 	:className className
@@ -2059,15 +2085,15 @@
 
 (defn addClassCC
   "Adds a relation CustomConstraintAppliesTo from CustomFunction to Class.
-  :fnName of a CustomFunction.
-  :atList should be list of AttributeTypes' _name.
-  :constraintValue should be value to be passed as CustomFunction's second argument"
-  [& {:keys [:fnName
-             :atList
-             :constraintValue
-             :className
-             :execute?]
-      :or {:execute? true}}
+  :fnName of a CustomFunction.(Mandatory)
+  :atList should be list of AttributeTypes' _name.(Mandatory)
+  :constraintValue should be value to be passed as CustomFunction's second argument(Mandatory)"
+  [& {:keys [fnName
+             atList
+             constraintValue
+             className
+             execute?]
+      :or {execute? true}}
    ]
   {:pre [(string? className)
          (string? fnName)
@@ -2084,12 +2110,12 @@
                          ) atList)
              )
       (throw (Exception. (str "atList must contain _name's of an AttributeType :" atList))))
-    (createRelation :fromNodeLabel "CustomFunction"
+    (createRelation :fromNodeLabels ["CustomFunction"]
                     :fromNodeParameters {"fnName" fnName}
                     :relationshipType "CustomConstraintAppliesTo"
                     :relationshipParameters {"atList" atList
                                              "constraintValue" constraintValue}
-                    :toNodeLabel "Class"
+                    :toNodeLabels ["Class"]
                     :toNodeParameters {"className" className}
                     :execute? execute?)
     )
@@ -2097,44 +2123,44 @@
 
 (defn remClassCC
   "Delete relation CustomConstraintAppliesTo from CustomFunction to Class.
-  :fnName of a CustomFunction.
-  :atList should be list of AttributeTypes' _name.
-  :constraintValue should be value to be passed as CustomFunction's second argument"
-  [& {:keys [:fnName
-             :atList
-             :constraintValue
-             :className
-             :execute?]
-      :or {:execute? true}}
+  :fnName of a CustomFunction.(Mandatory)
+  :atList should be list of AttributeTypes' _name.(Mandatory)
+  :constraintValue should be value to be passed as CustomFunction's second argument(Mandatory)"
+  [& {:keys [fnName
+             atList
+             constraintValue
+             className
+             execute?]
+      :or {execute? true}}
    ]
   {:pre [(string? className)
          (string? fnName)
          (coll? atList)
          (every? string? atList)]}
-  (deleteRelation :fromNodeLabel "CustomFunction"
+  (deleteRelation :fromNodeLabels ["CustomFunction"]
                   :fromNodeParameters {"fnName" fnName}
                   :relationshipType "CustomConstraintAppliesTo"
                   :relationshipParameters {"atList" atList
                                            "constraintValue" constraintValue}
-                  :toNodeLabel "Class"
+                  :toNodeLabels ["Class"]
                   :toNodeParameters {"className" className}
                   :execute? execute?)
   )
 
 (defn editClassCC
   "Edit relation CustomConstraintAppliesTo from CustomFunction to Class.
-  :fnName of a CustomFunction.
-  :className of Class
-  :atList should be list of AttributeTypes' _name of existing CCAT relation.
-  :constraintValue should be value to be passed as CustomFunction's second argument of existing CCAT relation.
-  :editMap map with keys 'atList' and 'constraintValue' and appropriate values"
-  [& {:keys [:fnName
-             :atList
-             :constraintValue
-             :className
-             :editMap
-             :execute?]
-      :or {:execute? true}}
+  :fnName of a CustomFunction.(Mandatory)
+  :className of Class(Mandatory)
+  :atList should be list of AttributeTypes' _name of existing CCAT relation.(Mandatory)
+  :constraintValue should be value to be passed as CustomFunction's second argument of existing CCAT relation.(Mandatory)
+  :editMap map with keys 'atList' and 'constraintValue' and appropriate values(Mandatory)"
+  [& {:keys [fnName
+             atList
+             constraintValue
+             className
+             editMap
+             execute?]
+      :or {execute? true}}
    ]
   {:pre [(string? className)
          (string? fnName)
@@ -2143,12 +2169,12 @@
          (map? editMap)
          (clojure.set/subset? (keys editMap) #{"atList" "constraintValue"})
          (or (coll? (editMap "atList")) (nil? (editMap "atList")))]}
-  (editRelation :fromNodeLabel "CustomFunction"
+  (editRelation :fromNodeLabels ["CustomFunction"]
                 :fromNodeParameters {"fnName" fnName}
                 :relationshipType "CustomConstraintAppliesTo"
                 :relationshipParameters {"atList" atList
                                          "constraintValue" constraintValue}
-                :toNodeLabel "Class"
+                :toNodeLabels ["Class"]
                 :toNodeParameters {"className" className}
                 :newRelationshipParameters editMap
                 :execute? execute?)
@@ -2156,12 +2182,12 @@
 
 (defn createDelATCC
   "Creates a query to remove an AttributeType in all relations with label CustomConstraintAppliesTo.
-  :atName should be a string, _name of an AttributeType."
-  [& {:keys [:atName]}
+  :atName should be a string, _name of an AttributeType.(Mandatory)"
+  [& {:keys [atName]}
    ]
   {:pre [string? atName]}
   (let [propertyMap {"ATT" atName}]
-    {:query (str "MATCH (cc:CustomFunction)-[rel:CustomConstraintAppliesTo]->(cl:Class)"
+    {:query (str "MATCH (cc:`CustomFunction`)-[rel:`CustomConstraintAppliesTo`]->(cl:`Class`)"
                  " WHERE {ATT} IN rel.atList"
                  " "(createPropListEditString :varName "rel"
                                               :propName "atList"
@@ -2169,20 +2195,22 @@
                                               :editVal "ATT"
                                               :replaceVal "att"
                                               :withWhere? false)
-                 )
+                 (createReturnString ["cl" "UUID" "UUID"]))
+     :doRCS? true
+     :rcs-vars ["UUID"]
      :parameters propertyMap})
   )
 
 (defn createReplaceATCC
   "Creates a query to replace an AttributeType in all relations with label CustomConstraintAppliesTo.
-  :atName should be a string, _name of an AttributeType.
-  :renameName should be a string, replacement _name"
-  [& {:keys [:atName
-             :renameName]}]
+  :atName should be a string, _name of an AttributeType.(Mandatory)
+  :renameName should be a string, replacement _name(Mandatory)"
+  [& {:keys [atName
+             renameName]}]
   {:pre [(string? atName)
          (string? renameName)]}
   (let [propertyMap {"ATT" atName "att" renameName}]
-    {:query (str "MATCH (cc:CustomFunction)-[rel:CustomConstraintAppliesTo]->(cl:Class)"
+    {:query (str "MATCH (cc:`CustomFunction`)-[rel:`CustomConstraintAppliesTo`]->(cl:`Class`)"
                  " WHERE {ATT} IN rel.atList"
                  " "(createPropListEditString :varName "rel"
                                               :propName "atList"
@@ -2190,25 +2218,27 @@
                                               :editVal "ATT"
                                               :replaceVal "att"
                                               :withWhere? false)
-                 )
+                 (createReturnString ["cl" "UUID" "UUID"]))
+     :doRCS? true
+     :rcs-vars ["UUID"]
      :parameters propertyMap})
   )
 
-(defn addSubTypeVRQueryVec
+(defn- addSubTypeVRQueryVec
   "Returns a vector of queries consisting of the queries 
   for adding superclass NeoConstraints to the subclass"
-  [& {:keys [:_name
-             :_datatype
-             :subTypeOf]}]
+  [& {:keys [_name
+             _datatype
+             subTypeOf]}]
   (let
       [[superTypeName] subTypeOf
        superTypeVRVec (vec (((getATValueRestrictions :atName (str superTypeName)) :results) 0))
        is_aRelationQuery (createRelation 	
-                          :fromNodeLabel "AttributeType"
+                          :fromNodeLabels ["AttributeType"]
                           :fromNodeParameters {"_name" _name}
                           :relationshipType "is_a"
                           :relationshipParameters {}
-                          :toNodeLabel "AttributeType"
+                          :toNodeLabels ["AttributeType"]
                           :toNodeParameters {"_name" superTypeName}
                           :execute? false
                           )
@@ -2229,25 +2259,25 @@
 
 (defn createAttributeType
   "Creates a node with Label AttributeType.
-  :subTypeOf should be a vector containing the name of the superType if any
-  :_name should be a string
-  :_datatype should be a string of one of the following: 'java.lang.Boolean', 'java.lang.Byte', 'java.lang.Short', 'java.lang.Integer', 'java.lang.Long', 'java.lang.Float', 'java.lang.Double', 'java.lang.Character', 'java.lang.String', 'java.util.ArrayList'.
+  :subTypeOf should be a vector containing the name of the superType if any(Mandatory)
+  :_name should be a string(Mandatory)
+  :_datatype should be a string of one of the following: 'java.lang.Boolean', 'java.lang.Byte', 'java.lang.Short', 'java.lang.Integer', 'java.lang.Long', 'java.lang.Float', 'java.lang.Double', 'java.lang.Character', 'java.lang.String', 'java.util.ArrayList'.(Mandatory)
   :subjectQualifier should be a list of strings.
   :attributeQualifier should be a list of strings.
   :valueQualifier should be a list of strings"
-  [& {:keys [:_name
-             :_datatype
-             :subTypeOf
-             :subjectQualifier
-             :attributeQualifier
-             :valueQualifier
-             :execute?
-             :subTypeOf]
-      :or {:execute? true
-           :subjectQualifier []
-           :attributeQualifier []
-           :valueQualifier []
-           :subTypeOf []}
+  [& {:keys [_name
+             _datatype
+             subTypeOf
+             subjectQualifier
+             attributeQualifier
+             valueQualifier
+             execute?
+             subTypeOf]
+      :or {execute? true
+           subjectQualifier []
+           attributeQualifier []
+           valueQualifier []
+           subTypeOf []}
       :as keyArgs}]
   {:pre [
          (string? _name)
@@ -2255,7 +2285,7 @@
          ]
    }
   (let [createNewNodeQuery 
-        (createNewNode :label "AttributeType"
+        (createNewNode :labels ["AttributeType"]
                        :parameters {"_name" _name
                                     "_datatype" _datatype
                                     "subjectQualifier" subjectQualifier
@@ -2273,7 +2303,7 @@
                                      )
                              )
            [superTypeName] subTypeOf]
-        (if (not (empty? (getNodes :label "AttributeType"
+        (if (not (empty? (getNodes :labels ["AttributeType"]
                                    :parameters {"_name" (str superTypeName)}
                                    :execute? true)
                          )
@@ -2297,28 +2327,29 @@
 
 (defn getATClasses
   "Get classes that have a particular attributeType.
-  :_name should be a string, name of an AttributeType."
-  [& {:keys [:_name
-             :count?]
-      :or {:count? false}}]
+  :_name should be a string, name of an AttributeType.(Mandatory)"
+  [& {:keys [_name
+             count?]
+      :or {count? false}}]
   {:pre [(string? _name)]}
-  (((gdriver/runQuery {:query (str "MATCH (att:AttributeType {_name:{_name}})<-[:HasAttributeType]-(n:Class) RETURN "(if count?
-                                                                                                                       "count(n)"
-                                                                                                                       "n"))
+  (((gdriver/runQuery {:query (str "MATCH (att:`AttributeType` {_name:{_name}})<-[:`HasAttributeType`]-(n:`Class`) RETURN "(if count?
+                                                                                                                             "count(n)"
+                                                                                                                             "n"))
                        :parameters {"_name" _name}}) :results) 0)
   )
 
 (defn getAttributeTypes
   "Fetches all AttributeTypes from db"
-  [& {:keys [:count?]
-      :or {:count? false}}]
-  (getNodes :label "AttributeType" :count? count?))
+  [& {:keys [count?]
+      :or {count? false}}]
+  (getNodes :labels ["AttributeType"]
+            :count? count?))
 
 (defn editAttributeType
   "Edit an attributeType.
-  `:editChanges` should be a map with at least one of the following keys :
-  -`_name` should be a string
-  -`_datatype` should be a string of one of the following: 'java.lang.Boolean', 'java.lang.Byte', 'java.lang.Short', 'java.lang.Integer', 'java.lang.Long', 'java.lang.Float', 'java.lang.Double', 'java.lang.Character', 'java.lang.String', 'java.util.ArrayList'.
+  `:editChanges`(Mandatory) should be a map with at least one of the following keys :
+  -`_name` should be a string(Mandatory)
+  -`_datatype` should be a string of one of the following: 'java.lang.Boolean', 'java.lang.Byte', 'java.lang.Short', 'java.lang.Integer', 'java.lang.Long', 'java.lang.Float', 'java.lang.Double', 'java.lang.Character', 'java.lang.String', 'java.util.ArrayList'.(Mandatory)
   -`subjectQualifier` should be a list of strings.
   -`attributeQualifier` should be a list of strings.
   -`valueQualifier` should be a list of strings.
@@ -2329,12 +2360,12 @@
   Also, when changing _datatype, if the AttributeType has some unique/nodekey constraint, the instances of the AT will not be edited, as the default values are non-unique.
   But, if _name and _datatype is being changed together, the instances will be updated, but the new constraints will not be created.
   One must manually edit all the instances to fit the constraints and then call `applyClassNeoConstraints` with the approproate `:className`"
-  [& {:keys [:_name
-             :editChanges
-             :forceMigrate?
-             :execute?]
-      :or {:forceMigrate? false
-           :execute? true}}
+  [& {:keys [_name
+             editChanges
+             forceMigrate?
+             execute?]
+      :or {forceMigrate? false
+           execute? true}}
    ]
   {:pre [(string? _name)
          (map? editChanges)
@@ -2348,7 +2379,7 @@
          (or (not (contains? editChanges "_datatype")) (and (contains? editChanges "_datatype") (contains? validATDatatypes (editChanges "_datatype"))))
          ]
    }
-  (let [editQuery (editNodeProperties :label "AttributeType"
+  (let [editQuery (editNodeProperties :labels ["AttributeType"]
                                       :parameters {"_name" _name}
                                       :changeMap editChanges
                                       :execute? false)
@@ -2401,7 +2432,10 @@
                                                                                          (clojure.string/join " or " (map #(str "node:" %) ATClassNames))
                                                                                          " AND "(createRenameString :addWhere? false
                                                                                                                     :varName "node"
-                                                                                                                    :renameMap {_name (editChanges "_name")}))
+                                                                                                                    :renameMap {_name (editChanges "_name")})
+                                                                                         (createReturnString ["node" "UUID" "UUID"]))
+                                                                             :doRCS? true
+                                                                             :rcs-vars ["UUID"]
                                                                              :parameters {}}])
                                         ]
                                     {:constraintDropQueries constraintDropQueries
@@ -2414,7 +2448,10 @@
               datatypeChangeQueries (if (contains? editChanges "_datatype")
                                       (let [dataEditQueries [{:query (str "MATCH (node) WHERE "
                                                                           (clojure.string/join " or " (map #(str "node:" %) ATClassNames))
-                                                                          " SET node."(or (editChanges "_name") _name)" = {defVal}")
+                                                                          " SET node."(or (editChanges "_name") _name)" = {defVal}"
+                                                                          (createReturnString ["node" "UUID" "UUID"]))
+                                                              :doRCS? true
+                                                              :rcs-vars ["UUID"]
                                                               :parameters {"defVal" (defaultDatatypeValues (editChanges "_datatype"))}}]]
                                         {:constraintDropQueries []
                                          :constraintCreateQueries []
@@ -2431,7 +2468,6 @@
                                                 (datatypeChangeQueries :constraintCreateQueries))]
             (if
                 execute?
-              ;; (apply gdriver/runQuery constraintDropQueries)
               (gdriver/runTransactions constraintDropQueries dataEditQueries constraintCreateQueries)
               {:constraintDropQueries constraintDropQueries
                :dataEditQueries dataEditQueries
@@ -2444,20 +2480,20 @@
 (defn deleteAttributeType
   "Delete an AttributeType.
   :forceMigrate?"
-  [&{:keys [:_name
-            :forceMigrate?
-            :execute?]
-     :or {:execute? false}}]
+  [&{:keys [_name
+            forceMigrate?
+            execute?]
+     :or {execute? true}}]
   {:pre [(string? _name)]}
-  (let [deleteQuery (deleteDetachNodes :label "AttributeType"
-                                       :parameters {"_name" _name}
-                                       :execute? false)
+  (let [deleteQueries (deleteDetachNodes :labels ["AttributeType"]
+                                         :parameters {"_name" _name}
+                                         :execute? false)
         ATClasses (getATClasses :_name _name)
         ATClassNames (map #(((% "n") :properties) "className") ATClasses)]
     (if (empty? ATClasses)
       (if execute?
-        (gdriver/runQuery deleteQuery)
-        deleteQuery)
+        (apply gdriver/runQuery deleteQueries)
+        deleteQueries)
       (if
           (not forceMigrate?)
         (throw (Exception. (str "Class(es) "(seq
@@ -2482,14 +2518,17 @@
                                                                                                                          :editType "DELETE"
                                                                                                                          :editVal _name)
                                                                                         :constraintType (% "neo.constraintType"))) neoConstraintsWithAT))
-              dataEditQueries (reduceQueryColl [deleteQuery
-                                                (createDelATNC :atName _name)
-                                                (createDelATCC :atName _name)
-                                                {:query (str "MATCH (node) WHERE "
-                                                             (clojure.string/join " or " (map #(str "node:" %) ATClassNames))
-                                                             " "(createRemString :varName "node"
-                                                                                 :remPropertyList [_name]))
-                                                 :parameters {}}])]
+              dataEditQueries (reduceQueryColl (conj deleteQueries
+                                                     [(createDelATNC :atName _name)
+                                                      (createDelATCC :atName _name)
+                                                      {:query (str "MATCH (node) WHERE "
+                                                                   (clojure.string/join " or " (map #(str "node:" %) ATClassNames))
+                                                                   " "(createRemString :varName "node"
+                                                                                       :remPropertyList [_name])
+                                                                   (createReturnString ["node" "UUID" "UUID"]))
+                                                       :doRCS? true
+                                                       :rcs-vars ["UUID"]
+                                                       :parameters {}}]))]
           (if
               execute?
             (gdriver/runTransactions constraintDropQueries dataEditQueries constraintCreateQueries)
@@ -2503,20 +2542,20 @@
     )
   )
 
-(defn addSubClassATQueryVec
+(defn- addSubClassATQueryVec
   "Returns a vector of queries consisting of is_aRelationship 
   query and the queries for adding superclass AttributeTypes to the subclass"
-  [& {:keys [:className
-             :subClassOf]}] 
+  [& {:keys [className
+             subClassOf]}] 
   (let [[superClassName] subClassOf
         superClassATVec (vec (getClassAttributeTypes :className (str superClassName))) 
         is_aRelationQuery 	
         (createRelation 	
-         :fromNodeLabel "Class"
+         :fromNodeLabels ["Class"]
          :fromNodeParameters {"className" className}
          :relationshipType "is_a"
          :relationshipParameters {}
-         :toNodeLabel "Class"
+         :toNodeLabels ["Class"]
          :toNodeParameters {"className" superClassName}
          :execute? false
          )
@@ -2535,21 +2574,21 @@
     )
   )
 
-(defn addClassNCQuery
+(defn- addClassNCQuery
   "Returns addClassNC query without doing a check on the existence and the uniqueness of the class.
-  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.
-  :constraintTarget should be either of NODE,RELATION.
-  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY"
-  [& {:keys [:constraintType
-             :constraintTarget
-             :constraintValue
-             :className]}]
-  (let 	[createRelationQuery (createRelation :fromNodeLabel "NeoConstraint"
+  :constraintType should be either of UNIQUE,EXISTANCE,NODEKEY.(Mandatory)
+  :constraintTarget should be either of NODE,RELATION.(Mandatory)
+  :constraintValue should be _name of an  AttributeType or collection of _names, in case of NODEKEY(Mandatory)"
+  [& {:keys [constraintType
+             constraintTarget
+             constraintValue
+             className]}]
+  (let 	[createRelationQuery (createRelation :fromNodeLabels ["NeoConstraint"]
                                              :fromNodeParameters {"constraintType" constraintType
                                                                   "constraintTarget" constraintTarget}
                                              :relationshipType "NeoConstraintAppliesTo"
                                              :relationshipParameters {"constraintValue" constraintValue}
-                                             :toNodeLabel "Class"
+                                             :toNodeLabels ["Class"]
                                              :toNodeParameters {"className" className}
                                              :execute? false)
          applyClassNeoConstraintQuery (applyClassNeoConstraint 	:className className 
@@ -2568,12 +2607,12 @@
   )
 
 ;;;;;;Try to improve efficiency
-(defn addSubClassNCQueryVec
+(defn- addSubClassNCQueryVec
   "Returns a vector of queries consisting of the queries 
   for adding superclass NeoConstraints to the subclass"
-  [& {:keys [:className
-             :subClassOf
-             :classType]}
+  [& {:keys [className
+             subClassOf
+             classType]}
    ]
   (let
       [[superClassName] subClassOf
@@ -2617,33 +2656,33 @@
     )
   )
 
-(defn addClassCCQuery
+(defn- addClassCCQuery
   "Returns query for addClassCC without doing a check on atList
-  :fnName of a CustomFunction.
-  :constraintValue should be value to be passed as CustomFunction's second argument"
-  [& {:keys [:fnName
-             :atList
-             :constraintValue
-             :className]}]
+  :fnName of a CustomFunction.(Mandatory)
+  :constraintValue should be value to be passed as CustomFunction's second argument(Mandatory)"
+  [& {:keys [fnName
+             atList
+             constraintValue
+             className]}]
   {:pre [(string? className)
          (string? fnName)]}
   (createRelation 
-   :fromNodeLabel "CustomFunction"
+   :fromNodeLabels ["CustomFunction"]
    :fromNodeParameters {"fnName" fnName}
    :relationshipType "CustomConstraintAppliesTo"
    :relationshipParameters {"atList" atList
                             "constraintValue" constraintValue}
-   :toNodeLabel "Class"
+   :toNodeLabels ["Class"]
    :toNodeParameters {"className" className}
    :execute? false
    )
   )
 
-(defn addSubClassCCQueryVec
+(defn- addSubClassCCQueryVec
   "Returns a vector of queries consisting of the queries 
   for adding superclass CustomConstraints to the subclass"
-  [& {:keys [:className
-             :subClassOf]}
+  [& {:keys [className
+             subClassOf]}
    ]
   (let
       [[superClassName] subClassOf
@@ -2663,20 +2702,20 @@
     )
   )
 
-(defn addRelApplicableTypeQuery
+(defn- addRelApplicableTypeQuery
   "Returns the query of the function addRelApplicableType without doing a check 
   on the existence and uniqueness of applicableClass.
-  :className should be className of relation class.
-  :applicationType should be either SOURCE or TARGET as string.
-  :applicableClassName should be a className of the source or target Node Class"
-  [& {:keys [:className
-             :applicationType
-             :applicableClassName]}
+  :className should be className of relation class.(Mandatory)
+  :applicationType should be either SOURCE or TARGET as string.(Mandatory)
+  :applicableClassName should be a className of the source or target Node Class(Mandatory)"
+  [& {:keys [className
+             applicationType
+             applicableClassName]}
    ]
   {:pre [(string? className)
          (contains? #{"Source" "Target"} applicationType)
          (string? applicableClassName)
-         (= 1 (count (getNodes :label "Class"
+         (= 1 (count (getNodes :labels ["Class"]
                                :parameters {"className" className
                                             "classType" "RELATION"}
                                )
@@ -2684,12 +2723,12 @@
             )
          ]
    }
-  (let [builtQuery (createRelation :fromNodeLabel "Class"
+  (let [builtQuery (createRelation :fromNodeLabels ["Class"]
                                    :fromNodeParameters {"className" className
                                                         "classType" "RELATION"}
                                    :relationshipType (str "Applicable"applicationType"NT")
                                    :relationshipParameters {}
-                                   :toNodeLabel "Class"
+                                   :toNodeLabels ["Class"]
                                    :toNodeParameters {"className" applicableClassName
                                                       "classType" "NODE"}
                                    :execute? false
@@ -2699,10 +2738,10 @@
     )
   )
 
-(defn addSubClassAppTypeQueryVec
+(defn- addSubClassAppTypeQueryVec
   "Returns a vector of queries consisting of the queries 
   for adding superclass ApplicableTypeRelations to the subclass"
-  [& {:keys [:className :subClassOf]}]
+  [& {:keys [className subClassOf]}]
   (let
       [[superClassName] subClassOf
        superClassAppSourceNTVec (vec (getClassApplicableSourceNT :className (str superClassName)))
@@ -2734,15 +2773,15 @@
 
 (defn createClass
   "Create a node with label Class
-  :subClassOf should be a vector containing the name of the superclass if any"
-  [& {:keys [:className
-             :classType
-             :isAbstract?
-             :subClassOf
-             :properties
-             :execute?]
-      :or {:execute? true
-           :subClassOf []}
+  :subClassOf should be a vector containing the name of the superclass if any(Mandatory)"
+  [& {:keys [className
+             classType
+             isAbstract?
+             subClassOf
+             properties
+             execute?]
+      :or {execute? true
+           subClassOf []}
       }
    ]
   {:pre [
@@ -2757,7 +2796,7 @@
        	 ]
    }
   (let [createNewNodeQuery 
-        (createNewNode 	:label "Class"
+        (createNewNode 	:labels ["Class"]
                         :parameters (assoc properties
                                            "className" className
                                            "classType" classType
@@ -2784,7 +2823,7 @@
                                              :subClassOf subClassOf
                                              :classType classType)
            [superClassName] subClassOf]
-        (if (not (empty? (getNodes :label "Class"
+        (if (not (empty? (getNodes :labels ["Class"]
                                    :parameters {"className" (str superClassName)}
                                    :execute? true)
                          )
@@ -2807,10 +2846,11 @@
   )
 
 (defn getClassType
-  "Gets the classType of a Class"
-  [&{:keys [:className]}]
+  "Gets the classType of a Class
+  :className string (Mandatory)"
+  [&{:keys [className]}]
   {:pre [(string? className)]}
-  (try ((into {} ((first (getNodes :label "Class"
+  (try ((into {} ((first (getNodes :labels ["Class"]
                                    :parameters {"className" className}
                                    )
                          ) :properties)
@@ -2827,23 +2867,28 @@
   )
 
 (defn getClassInstances
-  "Get Class Instances"
-  [& {:keys [:className
-             :parameters
-             :count?]
-      :or {:count false
-           :parameters {}}}]
+  "Get Class Instances
+  :className string (Mandatory)
+  :parameters should be a map"
+  [& {:keys [className
+             parameters
+             count?]
+      :or {count false
+           parameters {}}}]
   {:pre [(string? className)]}
   (if (= "NODE" (getClassType :className className))
-    (getNodes :count? count? :label className :parameters parameters)
-    (getRelations :count? count? :relationshipType className :relationshipParameters parameters)
+    (getNodes :count? count? :labels [className]
+              :parameters parameters)
+    (getRelations :count? count?
+                  :relationshipType className
+                  :relationshipParameters parameters)
     )
   )
 
 (defn editClass
   "Edit isAbstract,className, miscelaneous properties of a class.
-  :className should be string , name of class to edit.
-  :newProperties should be a map with optional keys:
+  :className should be string , name of class to edit.(Mandatory)
+  :newProperties should be a map with optional keys:(Mandatory)
   -'className'
   -'isAbstract'
   :miscProperties should be a map with optional keys other than:
@@ -2851,20 +2896,20 @@
   -'classType'
   -'isAbstract'
   Changing isAbstract to true will delete all instances of the class, including relations, if the class is a node class."
-  [& {:keys [:className
-             :newProperties
-             :miscProperties
-             :forceMigrate?
-             :execute?]
-      :or {:newProperties {}
-           :miscProperties {}
-           :forceMigrate? false
-           :execute? true}}]
+  [& {:keys [className
+             newProperties
+             miscProperties
+             forceMigrate?
+             execute?]
+      :or {newProperties {}
+           miscProperties {}
+           forceMigrate? false
+           execute? true}}]
   {:pre [(string? className)
          (clojure.set/subset? (into #{} (keys newProperties)) #{"className" "isAbstract"})
          (empty? (clojure.set/intersection (into #{} (keys miscProperties)) #{"className" "isAbstract" "classType" "UUID"}))]}
   (let [classType (getClassType :className className)
-        editClassQuery (editNodeProperties :label "Class"
+        editClassQuery (editNodeProperties :labels ["Class"]
                                            :parameters {"className" className}
                                            :changeMap (merge newProperties
                                                              miscProperties)
@@ -2878,20 +2923,19 @@
                           )
                  ) forceMigrate?)
         (let [dataEditQueries (reduceQueryColl (concat [editClassQuery]
-                                                       [(if (and (contains? newProperties "isAbstract")
-                                                                 (= true (newProperties "isAbstract")))
-                                                          (case classType
-                                                            "NODE" (deleteDetachNodes :label className
-                                                                                      :parameters {}
-                                                                                      :execute? false)
-                                                            "RELATION" (deleteRelations :relationshipType className
-                                                                                        :execute? false)
-                                                            )
-                                                          []
-                                                          )
-                                                        ]
+                                                       (if (and (contains? newProperties "isAbstract")
+                                                                (= true (newProperties "isAbstract")))
+                                                         (case classType
+                                                           "NODE" (deleteDetachNodes :labels [className]
+                                                                                     :parameters {}
+                                                                                     :execute? false)
+                                                           "RELATION" [(deleteRelation :relationshipType className
+                                                                                       :execute? false)]
+                                                           )
+                                                         []
+                                                         )
                                                        [(if (contains? newProperties "className")
-                                                          (renameLabels :label className
+                                                          (renameLabels :labels [className]
                                                                         :properties {}
                                                                         :objectType classType
                                                                         :replaceLabelMap {className (newProperties "className")}
@@ -2933,35 +2977,52 @@
     )
   )
 
+(defn classExists?
+  "Determine if unique class exists.
+  :className string (Mandatory)
+  :classType string"
+  [& {:keys [className
+             classType]
+      :or {classType nil}}]
+  {:pre [(contains? #{nil "NODE" "RELATION"} classType)]}
+  (let [parameters (if (nil? classType)
+                     {"className" className}
+                     {"className" className
+                      "classType" classType})]
+    (= 1 (first (getNodes :count? true
+                          :labels ["Class"]
+                          :parameters parameters)))))
+
 (defn getClasses
   "Retrieve all classes"
-  [& {:keys [:count?]
-      :or {:count? false}}]
-  (getNodes :label "Class"
+  [& {:keys [count?]
+      :or {count? false}}]
+  (getNodes :labels ["Class"]
             :parameters {}
             :count? count?))
 
 (defn deleteClass
   "Deletes a class.
+  :className string (Mandatory)
   :forceMigrate? should be true if instances, constraints, etc  are to be deleted as well"
-  [& {:keys [:className
-             :forceMigrate?
-             :execute?]
-      :or {:forceMigrate? false
-           :execute? true}}]
+  [& {:keys [className
+             forceMigrate?
+             execute?]
+      :or {forceMigrate? false
+           execute? true}}]
   {:pre [(string? className)]}
   (let [classInstancesCount (first (getClassInstances :className className
                                                       :parameters {}
                                                       :count? true))
-        classDelQuery (deleteDetachNodes :label "Class"
-                                         :parameters {"className" className}
-                                         :execute? false)
-        classInstDelQuery (deleteDetachNodes :label className
-                                             :execute? false)
+        classDelQueries (deleteDetachNodes :labels ["Class"]
+                                           :parameters {"className" className}
+                                           :execute? false)
+        classInstDelQueries (deleteDetachNodes :labels [className]
+                                               :execute? false)
         constraintDropQueries (exemptClassNeoConstraints :className className
                                                          :execute? false)
         constraintCreateQueries []
-        dataEditQueries (reduceQueryColl [classInstDelQuery classDelQuery])]
+        dataEditQueries (reduceQueryColl [classInstDelQueries classDelQueries])]
     (if (or (= 0 classInstancesCount) forceMigrate?)
       (if execute?
         (gdriver/runTransactions constraintDropQueries
@@ -2975,8 +3036,8 @@
 
 (defn defineInitialConstraints
   "Creates Initial constraints"
-  [& {:keys [:execute?]
-      :or {:execute? true}}
+  [& {:keys [execute?]
+      :or {execute? true}}
    ]
   (let [builtQueries
         [(createNCConstraints :execute? false)
@@ -2998,10 +3059,12 @@
 (defn validatePropertyMaps
   "Validates propertyMaps for a class with className.
   Assumes class with given className exists.
-  Returns list of errors"
-  [& {:keys [:className
-             :propertyMapList]
-      :or {:propertyMapList []}
+  Returns list of errors
+  :className string (Mandatory)
+  :propertyMapList should be a list of property maps"
+  [& {:keys [className
+             propertyMapList]
+      :or {propertyMapList []}
       }
    ]
   {:pre [(string? className)
@@ -3097,10 +3160,14 @@
   )
 
 (defn validateClassInstances
-  "Validate instances of a class"
-  [& {:keys [:className
-             :classType
-             :instList]}]
+  "Validate instances of a class
+  :className string (Mandatory)
+  :classType string (Mandatory)
+  :instList list of maps"
+  [& {:keys [className
+             classType
+             instList]
+      :or {instList []}}]
   {:pre [(string? className)
          (string? classType)
          (contains? #{"NODE"
@@ -3108,7 +3175,7 @@
                     classType)
          (coll? instList)
          (every? map? instList)]}
-  (let [fetchedClass (getNodes :label "Class"
+  (let [fetchedClass (getNodes :labels ["Class"]
                                :parameters {"className" className
                                             "classType" classType}
                                )]
@@ -3121,24 +3188,27 @@
       (throw (Exception. (str className " is Abstract")))
       )
     )
-  (let [propertyErrors (validatePropertyMaps :className className
-                                             :propertyMapList instList
-                                             )
-        ]
-    (if (not= 0 (count propertyErrors))
-      (throw (Exception. (str (seq propertyErrors))))
+  (if (not (empty? instList))
+    (let [propertyErrors (validatePropertyMaps :className className
+                                               :propertyMapList instList
+                                               )
+          ]
+      (if (not= 0 (count propertyErrors))
+        (throw (Exception. (str (seq propertyErrors))))
+        )
       )
     )
   )
 
 (defn createNodeClassInstances
   "Creates nodes , as an instance of a Class with classType:NODE.
-  :nodeList should be a collection of maps with node properties"
-  [& {:keys [:className
-             :nodeList
-             :execute?]
-      :or {:execute? true
-           :nodeList []}
+  :className string (Mandatory)
+  :nodeList should be a collection of maps with node properties(Mandatory)"
+  [& {:keys [className
+             nodeList
+             execute?]
+      :or {execute? true
+           nodeList []}
       }
    ]
   {:pre [
@@ -3151,7 +3221,7 @@
     (validateClassInstances :className className
                             :classType "NODE"
                             :instList nodeList)
-    (let [builtQueries (map #(createNewNode :label className
+    (let [builtQueries (map #(createNewNode :labels [className]
                                             :parameters % 
                                             :execute? false
                                             )
@@ -3170,18 +3240,18 @@
 
 (defn createRelationClassInstances
   "Creates a relation between two nodes, as an instance of a class with classType:RELATION.
-  :className : relation className
-  :relList : list of maps with the following keys
-  -:fromClassName className of 'out' label.
+  :className : relation className(Mandatory)
+  :relList : list of maps with the following keys(Mandatory)
+  -:fromClassName className of 'out' label.(Mandatory)
   -:fromPropertyMap a property map that matches one or more 'out' nodes.
   -:propertyMap relation propertyMap.
-  -:toClassName className of 'in' label.
+  -:toClassName className of 'in' label.(Mandatory)
   -:toPropertyMap a property map that matches one or more 'in' nodes."
-  [& {:keys [:className
-             :relList
-             :execute?]
-      :or {:execute? true
-           :relList []}
+  [& {:keys [className
+             relList
+             execute?]
+      :or {execute? true
+           relList []}
       }
    ]
   {:pre [
@@ -3226,11 +3296,11 @@
                             :instList (map #(% :propertyMap) relList)
                             )
     (let [builtQueries (map #(createRelation
-                              :fromNodeLabel (% :fromClassName)
+                              :fromNodeLabels [(% :fromClassName)]
                               :fromNodeParameters (% :fromPropertyMap)
                               :relationshipType className
                               :relationshipParameters (% :propertyMap)
-                              :toNodeLabel (% :toClassName)
+                              :toNodeLabels [(% :toClassName)]
                               :toNodeParameters (% :toPropertyMap)
                               :execute? false
                               :unique? true) relList)]
@@ -3241,3 +3311,101 @@
     (catch Exception E (.getMessage E))
     )
   )
+
+(defn editNodeClassInstances
+  "Edit Instances of a Node Class.
+  :className string (Mandatory)
+  :parameters should be a map with properties to match class instances with.
+  :changeMap should be a map with parameters to be changed.(Mandatory)"
+  [& {:keys [className
+             parameters
+             changeMap
+             execute?]
+      :or {parameters {}
+           changeMap {}
+           execute? true}}]
+  (try
+    (validateClassInstances :className className
+                            :classType "NODE"
+                            :instList [changeMap])
+    (editNodeProperties :labels [className]
+                        :parameters parameters
+                        :changeMap changeMap
+                        :execute? execute?)
+    (catch Exception E
+      (.getMessage E))))
+
+(defn editRelationClassInstances
+  "Edit Instances of a Relation Class.
+  :className string (Mandatory)
+  :relationshipParameters should be a map to match relations by.
+  :newRelationshipParameters should be a map of new properties for the relation"
+  [& {:keys [className
+             relationshipParameters
+             newRelationshipParameters
+             fromNodeParameters
+             toNodeParameters
+             fromNodeLabels
+             toNodeLabels
+             execute?]
+      :or {relationshipParameters {}
+           newRelationshipParameters {}
+           toNodeParameters {}
+           fromNodeParameters {}
+           toNodeLabels []
+           fromNodeLabels []
+           execute? true}
+      :as keyArgs}]
+  (try
+    (validateClassInstances :className className
+                            :classType "RELATION"
+                            :instList [newRelationshipParameters])
+    (apply editRelation (prepMapAsArg (dissoc (assoc keyArgs :relationshipType className) :className)))
+    (catch Exception E
+      (.getMessage E))))
+
+(defn deleteNodeClassInstances
+  "Delete Instances of a Node Class.
+  :className string (Mandatory)
+  :parameters should be a map with properties to match class instances with.
+  You must use :detach? explicitly if the instances have relations"
+  [& {:keys [className
+             parameters
+             detach?
+             execute?]
+      :or {parameters {}
+           detach false
+           execute? true}}]
+  {:pre [(string? className)
+         (classExists? :className className
+                       :classType "NODE")]}
+  (if detach?
+    (deleteDetachNodes :labels [className]
+                       :parameters parameters
+                       :execute? execute?)
+    
+    (deleteNodes :labels [className]
+                 :parameters parameters
+                 :execute? execute?)))
+
+(defn deleteRelationClassInstances
+  "Delete Instances(Relations) of a relation class
+  :className string (Mandatory)"
+  [& {:keys [className
+             relationshipParameters
+             fromNodeParameters
+             toNodeParameters
+             fromNodeLabels
+             toNodeLabels
+             execute?]
+      :or {relationshipParameters {}
+           toNodeParameters {}
+           fromNodeParameters {}
+           toNodeLabels []
+           fromNodeLabels []
+           execute? true}
+      :as keyArgs}]
+  {:pre [(string? className)
+         (classExists? :className className
+                       :classType "RELATION")]}
+  (apply deleteRelation (prepMapAsArg (dissoc (assoc keyArgs :relationshipType className) :className))))
